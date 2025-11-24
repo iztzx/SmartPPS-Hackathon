@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeRoute: Family-First Disaster Hub</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load QR Code Generator -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Light blue-gray background for clean look */
+        }
+        .tab-button {
+            @apply px-4 py-3 text-center text-gray-600 font-semibold border-b-2 border-transparent transition duration-200 hover:border-indigo-400;
+        }
+        .tab-button.active {
+            @apply border-indigo-600 text-indigo-700 bg-indigo-50 shadow-inner;
+        }
+        .card {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        }
+        .pulse-animation {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        /* Semantic Chat bubble styles */
+        .user-message {
+            @apply bg-indigo-600 text-white self-end p-3 max-w-xs md:max-w-md rounded-xl rounded-br-none shadow-md;
+        }
+        .ai-message {
+            @apply bg-white text-gray-800 self-start p-3 max-w-xs md:max-w-md rounded-xl rounded-bl-none shadow-md border border-gray-200;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Firebase SDKs (using modules) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Set logging to debug for visibility
+        setLogLevel('Debug');
+
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, db, auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        // Initialize Firebase and Auth
+        try {
+            if (Object.keys(firebaseConfig).length > 0) {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Authentication setup
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                    } else {
+                        // Sign in anonymously if no token or user is logged out
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                                userId = auth.currentUser.uid;
+                            } else {
+                                await signInAnonymously(auth);
+                                userId = auth.currentUser.uid;
+                            }
+                        } catch (error) {
+                            console.error("Firebase Auth Error:", error);
+                            // Fallback to a random ID if sign-in fails, but private data access will fail security rules
+                            userId = crypto.randomUUID();
+                        }
+                    }
+
+                    isAuthReady = true;
+                    // Store global instances for window access
+                    window.db = db;
+                    window.auth = auth;
+                    window.userId = userId;
+                    window.isAuthReady = isAuthReady;
+
+                    console.log("Firebase Ready. User ID:", userId);
+                    document.getElementById('user-id-display').textContent = 'User ID: ' + userId;
+
+                    // Once authenticated, load user data and setup snapshot listener
+                    if (userId) {
+                        window.loadFamilyData();
+                    }
+                });
+            } else {
+                console.error("Firebase configuration is missing.");
+                userId = crypto.randomUUID(); // Mock ID for UI display
+                window.userId = userId;
+                document.getElementById('user-id-display').textContent = 'User ID (unauthenticated): ' + userId;
+            }
+        } catch (e) {
+            console.error("Error initializing Firebase:", e);
+        }
+
+        /**
+         * The family data is saved in a private collection for the user.
+         * Path: /artifacts/{appId}/users/{userId}/family_data/profile
+         */
+        window.getFamilyProfileRef = () => {
+            if (!db || !userId) return null;
+            return doc(db, `artifacts/${appId}/users/${userId}/family_data`, 'profile');
+        };
+
+        window.saveFamilyData = async (data) => {
+            const profileRef = window.getFamilyProfileRef();
+            if (!profileRef) {
+                console.error("Cannot save: Firestore or User ID not ready.");
+                return;
+            }
+            try {
+                await setDoc(profileRef, data, { merge: true });
+                console.log("Family data saved successfully.");
+                // Data will be re-rendered via the onSnapshot listener
+                return true;
+            } catch (e) {
+                console.error("Error saving document:", e);
+                return false;
+            }
+        };
+
+        window.loadFamilyData = () => {
+            const profileRef = window.getFamilyProfileRef();
+            if (!profileRef) {
+                console.warn("Cannot load: Firestore or User ID not ready.");
+                return;
+            }
+
+            // Real-time listener for family data
+            onSnapshot(profileRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    window.familyData = data;
+                    console.log("Real-time data update:", data);
+                    window.updateUIAfterDataLoad(data);
+                } else {
+                    window.familyData = {};
+                    console.log("No family data found.");
+                    window.updateUIAfterDataLoad({});
+                }
+            }, (error) => {
+                console.error("Snapshot error:", error);
+            });
+        };
+
+    </script>
+
+    <!-- Main App Content -->
+    <header class="bg-indigo-700 text-white p-4 shadow-xl">
+        <h1 class="text-2xl font-extrabold tracking-tight">SafeRoute: Family-First Disaster Hub</h1>
+        <p id="user-id-display" class="text-sm opacity-80 mt-1"></p>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="bg-white shadow-lg sticky top-0 z-10">
+        <div class="grid grid-cols-4">
+            <button class="tab-button active" onclick="showTab('situation')" id="tab-situation">Your Situation</button>
+            <button class="tab-button" onclick="showTab('routing')" id="tab-routing">✨ Intelligent Routing</button>
+            <button class="tab-button" onclick="showTab('qr-passport')" id="tab-qr-passport">QR Passport</button>
+            <button class="tab-button" onclick="showTab('rumour-killer')" id="tab-rumour-killer">✨ Rumour Killer</button>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 p-4 overflow-y-auto">
+
+        <!-- Tab 1: Your Situation (Phase 1: Semantic Input & Location) -->
+        <section id="situation" class="tab-content">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">1. Initial Status & Routing</h2>
+            <p class="text-base text-gray-600 mb-6 font-semibold bg-blue-100 p-4 rounded-lg border-l-4 border-blue-500">
+                **Step 1** determines your safest route by using your precise location and analyzing your family's specific needs (vulnerabilities).
+            </p>
+            
+            <!-- Step 1: Location & Status -->
+            <div class="card bg-white p-6 rounded-xl mb-6 border border-gray-200">
+                <h3 class="text-xl font-extrabold text-indigo-700 mb-3">📍 Step 1: Confirm Location</h3>
+                
+                <div id="location-status-container">
+                    <p id="current-location-display" class="text-base text-gray-700 font-semibold pulse-animation mb-4">Detecting location...</p>
+                    
+                    <!-- Dynamic Manual Input Form (shown if GPS/IP fails) -->
+                    <form id="manual-location-form" class="mt-4 border-t pt-4 hidden">
+                        <p class="text-sm font-bold text-red-600 mb-2">❌ Location Failed. Please enter your City or Suburb manually to check status and route.</p>
+                        <input type="text" id="manual-city-input" required placeholder="Enter City/Suburb (e.g., Segamat, Johor)" class="w-full rounded-lg border-gray-300 shadow-sm p-3 border focus:ring-red-500 focus:border-red-500">
+                        <button type="submit" class="w-full mt-3 py-3 px-4 rounded-lg text-white font-bold bg-red-600 hover:bg-red-700 transition shadow-md">
+                            Confirm Location
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Step 2: Semantic Intent Input -->
+            <div class="card bg-white p-6 rounded-xl mb-6 border border-gray-200">
+                <h3 class="text-xl font-extrabold text-gray-800 mb-3">Step 2: Describe Your Situation (Semantic)</h3>
+                <p class="text-sm text-gray-600 mb-4">Tell the AI your family's needs to find the safest PPS.</p>
+                <p class="text-xs text-indigo-500 italic mb-3 p-2 bg-indigo-50 rounded-lg">Hint: Try inputs like **"4 people, one is elderly who can't walk, and we have a pet cat."** or simply **"3 pax (all fine adults)."**</p>
+
+                <form id="semantic-form" class="space-y-4">
+                    <textarea id="semantic-input" required rows="3" placeholder="Describe your family's situation and vulnerabilities here..." class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-600 focus:ring-indigo-600 p-3 border"></textarea>
+
+                    <button type="submit" id="semantic-submit-button" class="w-full py-3 px-4 border border-transparent rounded-lg shadow-lg text-base font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-offset-2 focus:ring-indigo-500 transition">
+                        ✨ Get Safe Route & Local Status
+                    </button>
+                </form>
+            </div>
+            
+        </section>
+
+        <!-- Tab 2: Intelligent Routing (Feature A + Status) -->
+        <section id="routing" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">2. Intelligent Routing & Local Status</h2>
+            <p class="text-sm text-gray-600 mb-4">The AI has analyzed your location and needs to provide critical status updates and the safest shelter recommendation.</p>
+            
+            <!-- Local Status / Weather Results -->
+            <div id="local-status-results-routing" class="card p-5 rounded-xl mb-6 bg-red-50 border-red-500 border-l-4 transition duration-300">
+                <h3 class="text-xl font-extrabold text-red-700 mb-3 flex items-center">🚨 Real-Time Status & Weather</h3>
+                <div id="status-content">
+                    <p class="text-sm text-gray-500">Awaiting status check from JamAI Base...</p>
+                </div>
+            </div>
+
+            <div id="routing-input-card" class="card bg-white p-5 rounded-xl mb-6 border border-gray-200">
+                <p class="text-lg font-extrabold text-indigo-700 mb-3">AI Decoded Vulnerabilities:</p>
+                <div id="current-vulnerabilities" class="text-gray-500 italic text-base mb-4">
+                    Please use the "Your Situation" tab first.
+                </div>
+                <p class="text-xs text-gray-500">Routing calculation based on: <span id="routing-coords" class="font-mono text-gray-700">N/A</span></p>
+            </div>
+
+            <!-- Results Section -->
+            <div id="routing-results" class="space-y-4">
+                <div id="best-match-display" class="card p-5 rounded-xl text-center hidden bg-white border-2 border-indigo-400">
+                    <!-- Best Match Result will be inserted here -->
+                </div>
+
+                <h3 class="text-xl font-bold text-gray-800 mt-6 border-b pb-2">PPS Suitability Analysis:</h3>
+                <div id="pps-list" class="space-y-4">
+                    <!-- PPS cards (A, B, C) will be inserted here -->
+                </div>
+
+                <p id="jamai-citation" class="text-xs text-gray-500 pt-4 border-t hidden">AI Reasoning provided by JamAI Base.</p>
+            </div>
+        </section>
+
+        <!-- Tab 3: QR Passport (Phase 2: Detailed Registration & QR Output) -->
+        <section id="qr-passport" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">3. JKM Passport Creation (Phase 2)</h2>
+            <p class="text-base text-gray-600 mb-6">Complete the required personal details to generate your **Zero-Typing QR Passport**. Scan this at the PPS for rapid registration.</p>
+
+            <div id="save-status" class="mb-3 p-3 text-sm rounded-lg font-medium hidden"></div>
+
+            <!-- Detailed JKM Passport Form (Moved here from Registration) -->
+            <form id="family-form" class="space-y-5 card bg-white p-6 rounded-xl mb-6 border border-gray-200">
+                <div>
+                    <label for="headName" class="block text-sm font-semibold text-gray-700">1. Head of Family Name (Mandatory)</label>
+                    <input type="text" id="headName" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-3 border">
+                </div>
+                <div>
+                    <label for="icNumber" class="block text-sm font-semibold text-gray-700">2. IC Number (12 digits, Mandatory)</label>
+                    <input type="text" id="icNumber" required pattern="\d{12}" title="12 digits without dashes" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-3 border">
+                </div>
+                <div>
+                    <label for="address" class="block text-sm font-semibold text-gray-700">3. Home Address (Mandatory)</label>
+                    <textarea id="address" required rows="2" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-3 border"></textarea>
+                </div>
+                <div>
+                    <label for="familySize" class="block text-sm font-semibold text-gray-700">4. Total Family Size (Mandatory)</label>
+                    <input type="number" id="familySize" required min="1" value="1" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-3 border">
+                </div>
+                <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <p class="text-sm font-bold text-gray-800 mb-2">5. Stored Vulnerabilities (Decoded from Step 1)</p>
+                    <div id="vulnerability-list-display" class="text-sm text-gray-700">None saved.</div>
+                </div>
+
+                <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-lg shadow-lg text-base font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-offset-2 focus:ring-indigo-500 transition">
+                    Save Details & Generate QR Passport
+                </button>
+            </form>
+
+
+            <!-- QR Code Output -->
+            <div id="qr-container" class="flex flex-col items-center justify-center card bg-white p-6 rounded-xl space-y-4 border border-gray-200">
+                <div id="qrcode-display" class="p-4 border-4 border-indigo-600 rounded-xl bg-white shadow-2xl">
+                    <canvas id="qr-canvas" class="w-64 h-64 md:w-80 md:h-80"></canvas>
+                </div>
+                <p id="qr-status" class="text-center text-red-500 font-bold">No family data saved yet. Please complete the form above.</p>
+                <button id="copy-payload-button" class="py-2 px-4 border rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 transition hidden" onclick="copyJKMPayload()">
+                    Copy JKM Payload (Raw Text)
+                </button>
+            </div>
+            <div class="mt-6 text-sm p-4 bg-gray-100 rounded-lg border border-gray-300">
+                <p class="font-semibold text-gray-700">JKM Schema Preview:</p>
+                <code id="jkm-payload-preview" class="block whitespace-pre-wrap break-words text-gray-600 mt-2 text-xs font-mono">Awaiting data...</code>
+            </div>
+        </section>
+        
+        <!-- Tab 4: Rumour Killer (Feature C) -->
+        <section id="rumour-killer" class="tab-content hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">4. ✨ Rumour Killer (Grounded Q&A)</h2>
+            <p class="text-base text-gray-600 mb-4">Verify rumors or ask for official SOPs. The AI uses Google Search to find the latest official information (simulating NADMA/METMalaysia data).</p>
+
+            <div id="chat-window" class="card bg-gray-50 p-4 rounded-xl h-96 overflow-y-auto mb-4 flex flex-col space-y-3">
+                <div class="ai-message">
+                    <p class="text-sm font-medium">Welcome! Ask me anything about current disaster status or safety procedures. For example: **"Is the electricity cut off in Segamat?"** or **"What should I pack in an emergency bag?"**</p>
+                </div>
+            </div>
+
+            <form id="rumour-form" class="flex space-x-2">
+                <input type="text" id="rumour-input" required placeholder="Type your rumor or question here..." class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-indigo-600 focus:ring-indigo-600 p-3 border">
+                <button type="submit" id="rumour-submit-button" class="shrink-0 py-3 px-4 rounded-lg text-white font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition shadow-md">
+                    Ask ✨
+                </button>
+            </form>
+        </section>
+    </main>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // JamAI Base Configuration (PAT and Project ID are noted here but the standard Gemini API URL is used for execution)
+        const JAMAI_PAT = "jamai_pat_2e78e7a9f44d66ca4726d3520eb04477d7c02260745203df";
+        const JAMAI_PROJECT_ID = "proj_b4b113dc379b88886dc8e437"; 
+        
+        const IP2LOCATION_KEY = "D2D17B84A589ED1060A87E4DD69AC1A9";
+        // Querying without an IP will use the client's public IP (IPv4 or IPv6)
+        const IP2LOCATION_URL_BASE = `https://api.ip2location.io/?key=${IP2LOCATION_KEY}`; 
+
+        const API_KEY = ""; // Placeholder, will be provided by Canvas runtime
+        // Using same model for all LLM tasks
+        const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+        
+        let familyData = {};
+        // Default coordinates are now set to a generic Malaysian center (KL) for safety, but will be overwritten by GPS/IP
+        let userLocation = { city: 'Unknown City', region: 'Malaysia', lat: 3.140853, lon: 101.693240, source: 'Default' };
+
+
+        // --- Location Setup (GPS First, IP Second, then Manual Input Prompt) ---
+        
+        function updateLocationUI() {
+            const display = document.getElementById('current-location-display');
+            const manualForm = document.getElementById('manual-location-form');
+            const routingCoords = document.getElementById('routing-coords');
+            
+            let statusText = '';
+            
+            if (userLocation.source === 'GPS') {
+                statusText = `✅ **GPS Detected:** ${userLocation.city}, ${userLocation.region} (Lat: ${userLocation.lat.toFixed(4)}, Lon: ${userLocation.lon.toFixed(4)})`;
+                manualForm.classList.add('hidden');
+                display.classList.remove('pulse-animation');
+            } else if (userLocation.source === 'IP Fallback') {
+                statusText = `⚠️ **IP Detected:** ${userLocation.city}, ${userLocation.region} (Lat: ${userLocation.lat.toFixed(4)}, Lon: ${userLocation.lon.toFixed(4)})`;
+                manualForm.classList.add('hidden');
+                display.classList.remove('pulse-animation');
+            } else if (userLocation.source === 'Manual') {
+                statusText = `📍 **Manual Location:** ${userLocation.city}, ${userLocation.region} (Lat/Lon used for routing)`;
+                manualForm.classList.add('hidden');
+                display.classList.remove('pulse-animation');
+            } else { // Manual Input Required
+                statusText = `❌ **Location Required.** Automatic detection failed. Please confirm your location below to proceed.`;
+                manualForm.classList.remove('hidden');
+                display.classList.add('pulse-animation');
+            }
+
+            display.innerHTML = statusText.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>'); // Use bold formatting
+            
+            // Also update the routing tab coordinate display
+            routingCoords.textContent = `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)} (Source: ${userLocation.source})`;
+        }
+
+        function getGPSLocation() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    return reject("Geolocation not supported.");
+                }
+
+                // 5-second timeout, maximum age 0 (fresh reading), high accuracy preferred
+                const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
+                
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        userLocation.lat = position.coords.latitude;
+                        userLocation.lon = position.coords.longitude;
+                        userLocation.city = 'Your GPS Area'; 
+                        userLocation.region = 'GPS Detected';
+                        userLocation.source = 'GPS';
+                        resolve(true);
+                    },
+                    (error) => {
+                        console.warn('Geolocation Error:', error.code, error.message);
+                        reject(`Geolocation failed: ${error.message}`);
+                    },
+                    options
+                );
+            });
+        }
+        
+        async function getIPLocation() {
+            try {
+                const response = await fetch(IP2LOCATION_URL_BASE);
+                const data = await response.json();
+
+                if (response.ok && data.latitude && data.longitude && data.country_code !== 'N/A') {
+                    // *** FIX: Use real coordinates from IP detection as requested ***
+                    userLocation.lat = parseFloat(data.latitude);
+                    userLocation.lon = parseFloat(data.longitude);
+                    userLocation.city = data.city_name || 'Unknown City';
+                    userLocation.region = data.region_name || 'Unknown Region';
+                    userLocation.source = 'IP Fallback';
+                    return true;
+                }
+            } catch (e) {
+                console.warn("IP2Location API call failed.", e);
+            }
+            return false;
+        }
+
+
+        async function getUserLocation() {
+            const display = document.getElementById('current-location-display');
+            display.classList.add('pulse-animation');
+            display.innerHTML = 'Detecting location via GPS...';
+
+            let locationFound = false;
+
+            // Priority 1: Attempt GPS
+            try {
+                await getGPSLocation();
+                locationFound = true;
+            } catch (e) {
+                console.warn("GPS failed. Falling back to IP lookup.");
+                display.innerHTML = 'Detecting location via IP...';
+
+                // Priority 2: Attempt IP Fallback
+                locationFound = await getIPLocation();
+            }
+
+            if (!locationFound) {
+                console.warn("IP lookup failed. Falling back to Manual Input.");
+                // Priority 3: Force Manual Input
+                userLocation.source = 'Manual Input Required';
+                userLocation.city = 'N/A';
+                userLocation.region = 'N/A';
+                userLocation.lat = 0;
+                userLocation.lon = 0;
+            }
+
+            updateLocationUI();
+        }
+
+        document.getElementById('manual-location-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const cityInput = document.getElementById('manual-city-input').value.trim();
+            if (cityInput) {
+                userLocation.city = cityInput;
+                userLocation.region = 'Manual Input';
+                userLocation.source = 'Manual';
+                
+                // If coordinates are still 0/0 (total failure), set to a generic Malaysian center point to avoid math errors in routing.
+                if (userLocation.lat === 0 && userLocation.lon === 0) {
+                    userLocation.lat = 3.140853; 
+                    userLocation.lon = 101.693240;
+                }
+                updateLocationUI();
+            }
+        });
+
+
+        // --- Tab Management ---
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
+
+            document.getElementById(tabId).classList.remove('hidden');
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+
+            if (tabId === 'qr-passport') {
+                updateQRCode();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            showTab('situation'); // Default to the new "Your Situation" tab
+            getUserLocation(); // Start location detection
+        });
+
+        // --- Data Persistence and UI Update ---
+
+        // Function to update the UI elements after data is loaded from Firestore
+        window.updateUIAfterDataLoad = (data) => {
+            window.familyData = data;
+            const form = document.getElementById('family-form');
+            const vulnerabilitiesDisplay = document.getElementById('vulnerability-list-display');
+            
+            // Update form fields in QR Passport tab
+            if (Object.keys(data).length > 0) {
+                for (const key in data) {
+                    const input = form.querySelector(`#${key}`);
+                    if (input) {
+                        input.value = data[key];
+                    }
+                }
+                
+                // Update QR Passport tab details display
+                const vulns = data.vulnerabilities?.join('; ') || 'None saved.';
+                vulnerabilitiesDisplay.textContent = vulns;
+
+            } else {
+                // Reset/clear UI elements if no data
+                form.reset();
+                vulnerabilitiesDisplay.textContent = 'None saved.';
+            }
+
+            // Update QR Passport and Routing Tabs regardless of which tab is active
+            updateQRCode(data);
+            updateRoutingTab(data);
+        };
+        
+        function updateRoutingTab(data) {
+            const currentVulnerabilitiesDiv = document.getElementById('current-vulnerabilities');
+            const routingCoords = document.getElementById('routing-coords');
+
+            const vulns = data.vulnerabilities?.join('; ') || 'None reported.';
+            currentVulnerabilitiesDiv.innerHTML = `<span class="font-bold text-indigo-700">${vulns}</span>`;
+            routingCoords.textContent = `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)} (Source: ${userLocation.source})`;
+        }
+
+        // Handle Save Details & Generate QR Passport form submission (Phase 2)
+        document.getElementById('family-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            
+            // Use the vulnerabilities already decoded and stored in familyData
+            const vulnerabilities = window.familyData.vulnerabilities || []; 
+
+            const formData = {
+                headName: form.headName.value,
+                icNumber: form.icNumber.value,
+                address: form.address.value,
+                familySize: parseInt(form.familySize.value),
+                vulnerabilities: vulnerabilities,
+            };
+
+            // Generate JKM Payload (Feature B requirement)
+            formData.jkmPayload = generateJKMQRPayload(formData);
+
+            const statusEl = document.getElementById('save-status');
+            const success = await window.saveFamilyData(formData);
+
+            if (success) {
+                statusEl.textContent = "Data saved successfully! Your QR Passport is ready.";
+                statusEl.classList.remove('hidden', 'bg-red-100', 'text-red-700');
+                statusEl.classList.add('bg-green-100', 'text-green-700');
+            } else {
+                statusEl.textContent = "Error saving data. Check console.";
+                statusEl.classList.remove('hidden', 'bg-green-100', 'text-green-700');
+                statusEl.classList.add('bg-red-100', 'text-red-700');
+            }
+            setTimeout(() => statusEl.classList.add('hidden'), 5000);
+        });
+
+        // JKM Admission Schema Simulation
+        function generateJKMQRPayload(data) {
+            // A simplified JKM schema for PPS admission
+            const payload = {
+                schema: "JKM_PPS_v1.0",
+                timestamp: new Date().toISOString(),
+                ref_id: window.userId || 'UNAUTH-' + crypto.randomUUID().substring(0, 8),
+                nama_ketua: data.headName || 'N/A',
+                no_ic: data.icNumber || 'N/A',
+                alamat: data.address || 'N/A',
+                jumlah_ahli: data.familySize || 0,
+                keperluan_khas: data.vulnerabilities || [],
+            };
+            return JSON.stringify(payload, null, 0); // Minified JSON for QR
+        }
+
+        function updateQRCode(data = window.familyData) {
+            const statusEl = document.getElementById('qr-status');
+            const previewEl = document.getElementById('jkm-payload-preview');
+            const copyButton = document.getElementById('copy-payload-button');
+            const canvas = document.getElementById('qr-canvas');
+
+            if (data && data.jkmPayload) {
+                statusEl.textContent = "QR Code Generated. Ready to scan.";
+                statusEl.classList.remove('text-red-500');
+                statusEl.classList.add('text-green-600');
+                copyButton.classList.remove('hidden');
+
+                // Update preview
+                previewEl.textContent = data.jkmPayload;
+
+                // Generate QR code
+                QRCode.toCanvas(canvas, data.jkmPayload, {
+                    errorCorrectionLevel: 'H',
+                    width: 300,
+                    margin: 1,
+                    color: {
+                        dark: '#1f2937', // Tailwind gray-800
+                        light: '#ffffff'
+                    }
+                }, function (error) {
+                    if (error) console.error(error);
+                });
+            } else {
+                // No data case
+                statusEl.textContent = "No family data saved yet. Please complete the form above.";
+                statusEl.classList.add('text-red-500');
+                statusEl.classList.remove('text-green-600');
+                previewEl.textContent = 'Awaiting data...';
+                copyButton.classList.add('hidden');
+                // Clear canvas
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        function copyJKMPayload() {
+            const payload = window.familyData.jkmPayload;
+            if (payload) {
+                // Use document.execCommand('copy') for better compatibility in iFrames
+                const tempTextarea = document.createElement('textarea');
+                tempTextarea.value = payload;
+                document.body.appendChild(tempTextarea);
+                tempTextarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempTextarea);
+                
+                document.getElementById('copy-payload-button').textContent = 'Copied!';
+                setTimeout(() => {
+                    document.getElementById('copy-payload-button').textContent = 'Copy JKM Payload (Raw Text)';
+                }, 2000);
+            }
+        }
+
+        // --- Feature A: Intelligent Routing (JamAI Logic - Two Step Process + Status Check) ---
+
+        // Simulated list of nearby PPS centers (Coordinates mocked for Johor/Southern Malaysia relevance)
+        const PPS_DATA = [
+            { id: 1, name: "PPS North (Sekolah)", distance_km: 1.0, lat: 1.5000, lon: 103.7500, features: "2nd floor classrooms only, No lift, Limited parking", constraints: "Cannot accommodate bedridden patients (stairs)."},
+            { id: 2, name: "PPS Central (Dewan)", distance_km: 2.0, lat: 1.4800, lon: 103.7300, features: "Ground floor access, Ample parking, Strict pet policy", constraints: "Strict 'No Animals' policy."},
+            { id: 3, name: "PPS South (Kolej)", distance_km: 4.0, lat: 1.4500, lon: 103.7200, features: "OKU toilets, Designated outdoor pet area, Ground floor halls", constraints: "None relevant to standard needs."}
+        ];
+        
+        document.getElementById('semantic-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (userLocation.source !== 'GPS' && userLocation.source !== 'IP Fallback' && userLocation.source !== 'Manual') {
+                 // Check if location is confirmed
+                alert("Please wait for location detection or confirm your location in Step 1 before routing.");
+                return;
+            }
+            
+            const semanticInput = document.getElementById('semantic-input').value.trim();
+            if (semanticInput) {
+                await findOptimalPPS(semanticInput);
+                showTab('routing'); // Automatically switch to Routing tab after submission
+            }
+        });
+
+
+        async function findOptimalPPS(semanticInput) {
+            
+            const button = document.getElementById('semantic-submit-button');
+            const listDiv = document.getElementById('pps-list');
+            const matchDiv = document.getElementById('best-match-display');
+            const citationDiv = document.getElementById('jamai-citation');
+            const currentVulnerabilitiesDiv = document.getElementById('current-vulnerabilities');
+            const statusContentDiv = document.getElementById('status-content');
+            const statusCard = document.getElementById('local-status-results-routing');
+            
+            // 1. Setup UI for Loading
+            button.disabled = true;
+            button.classList.add('opacity-50');
+            button.textContent = '✨ Analyzing Situation & Status...';
+            listDiv.innerHTML = '<p class="text-gray-500 pulse-animation font-semibold">Calculating PPS suitability...</p>';
+            matchDiv.classList.add('hidden');
+            citationDiv.classList.add('hidden');
+            currentVulnerabilitiesDiv.textContent = 'Analyzing...';
+            statusContentDiv.innerHTML = '<p class="text-sm text-gray-500 pulse-animation">Fetching real-time weather and alerts...</p>';
+            statusCard.classList.remove('bg-green-100', 'border-green-500', 'bg-red-100', 'border-red-500');
+            statusCard.classList.add('bg-gray-100');
+            
+            let decodedVulnerabilities = [];
+
+            // --- Step 1: Decode Semantic Intent (LLM Call 1) ---
+            try {
+                const decodingPrompt = `Analyze the following emergency situation. Extract and list the distinct vulnerabilities, special needs, and key family details relevant to a relief center (PPS). Output ONLY a comma-separated list of structured keywords. Mandatory keywords: Family size (e.g., '5 Pax'). If no other vulnerability is mentioned, only output the 'X Pax' tag. Other keywords: 'Warga Emas/Bedridden', 'Pet/Cat', 'Wheelchair User (OKU)', 'Dietary Restrictions'.
+                User Input: "${semanticInput}"`;
+                
+                const payload1 = {
+                    contents: [{ parts: [{ text: decodingPrompt }] }],
+                    systemInstruction: { parts: [{ text: "You are a data decoder. Provide only a comma-separated list of standardized tags." }] },
+                };
+
+                const response1 = await fetch(GEMINI_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload1)
+                });
+                const result1 = await response1.json();
+                const decodedText = result1.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                
+                decodedVulnerabilities = decodedText.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+                
+                if (decodedVulnerabilities.length === 0) {
+                    // Fallback if AI fails to find 'X Pax'
+                     if (semanticInput.toLowerCase().includes('pax') || semanticInput.toLowerCase().includes('people')) {
+                         decodedVulnerabilities = ['N/A Pax'];
+                     } else {
+                         throw new Error("AI could not decode semantic input.");
+                     }
+                }
+                
+                // Store the decoded data globally for the QR passport
+                window.familyData.vulnerabilities = decodedVulnerabilities; 
+                currentVulnerabilitiesDiv.innerHTML = `<span class="font-bold text-indigo-700">${decodedVulnerabilities.join('; ')}</span>`;
+                
+            } catch (error) {
+                console.error("Semantic Decoding Error:", error);
+                matchDiv.classList.remove('hidden');
+                matchDiv.innerHTML = `<p class="text-lg font-bold text-red-600">Decoding Failed</p><p class="text-sm">Could not interpret your situation. Please try a simpler description.</p>`;
+                button.disabled = false;
+                button.classList.remove('opacity-50');
+                button.textContent = '✨ Get Safe Route & Local Status';
+                return;
+            }
+
+
+            // --- Step 2: Intelligent Routing & Status Check (LLM Call 2) ---
+
+            const userVulnerabilities = decodedVulnerabilities; 
+            button.textContent = '✨ Finalizing Report...';
+
+            // --- Status Check via JamAI (Simulating Data.gov.my API) ---
+            const locationString = userLocation.source !== 'Manual Input Required'
+                                 ? `${userLocation.city}, ${userLocation.region} (Lat: ${userLocation.lat.toFixed(4)}, Lon: ${userLocation.lon.toFixed(4)})`
+                                 : userLocation.city;
+            
+            const statusPrompt = `Provide a real-time update on the current weather, flood risk, and any active government evacuation orders for the location: ${locationString}. Base your response on the latest information from the Malaysian government (simulate developer.data.gov.my/realtime-api/weather and NADMA alerts). Provide a single, concise paragraph and assess the immediate danger level (Low/Medium/High).`;
+            
+            let statusResponseText = "Status check failed.";
+
+            try {
+                const statusPayload = {
+                    contents: [{ parts: [{ text: statusPrompt }] }],
+                    tools: [{ "google_search": {} }], 
+                    systemInstruction: { parts: [{ text: "You are an emergency status reporter providing only official, real-time Malaysian weather and alert data." }] },
+                };
+
+                const statusResponse = await fetch(GEMINI_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(statusPayload)
+                });
+
+                if (statusResponse.ok) {
+                    const statusResult = await statusResponse.json();
+                    statusResponseText = statusResult.candidates?.[0]?.content?.parts?.[0]?.text || statusResponseText;
+                }
+                
+                // Determine danger level for card color
+                const isHighDanger = statusResponseText.toLowerCase().includes('high danger') || statusResponseText.toLowerCase().includes('evacuation order');
+                statusCard.classList.remove('bg-gray-100');
+                if (isHighDanger) {
+                    statusCard.classList.add('bg-red-100', 'border-red-500');
+                } else {
+                    statusCard.classList.add('bg-green-100', 'border-green-500');
+                }
+                
+                statusContentDiv.innerHTML = `<p class="text-sm whitespace-pre-wrap text-gray-800">${statusResponseText}</p>`;
+
+            } catch(e) {
+                console.error("Status Check Error:", e);
+                statusContentDiv.innerHTML = '<p class="text-sm text-red-600 font-bold">Failed to fetch real-time status. Network error.</p>';
+            }
+            
+            // --- Routing Logic ---
+            const systemPrompt = "You are an emergency management AI. Your task is to analyze user vulnerabilities and a list of available flood relief centers (PPS) to select the single, best-suited center. For each center, you MUST provide a Chain-of-Thought (CoT) explaining why it is accepted or rejected based on the user's explicit needs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)).";
+            
+            const userQuery = `User Vulnerabilities (Must be accommodated): ${userVulnerabilities.join('; ')}. 
+            User Current Location (Lat/Lon): ${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)}.
+            Available PPS Data (Analyze constraints against needs): 
+            ${JSON.stringify(PPS_DATA, null, 2)}
+            
+            Please provide a detailed analysis and select the optimal PPS.`;
+            
+            let bestMatchName = null;
+            let fullAnalysisText = "";
+            listDiv.innerHTML = ''; // Clear loading text
+
+            try {
+                const payload2 = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+
+                const response2 = await fetch(GEMINI_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload2)
+                });
+
+                if (!response2.ok) throw new Error(`HTTP error! status: ${response2.status}`);
+
+                const result2 = await response2.json();
+                const candidate = result2.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    fullAnalysisText = candidate.content.parts[0].text;
+                    const lines = fullAnalysisText.trim().split('\n');
+                    const lastLine = lines[lines.length - 1];
+                    if (lastLine.startsWith('BEST MATCH:')) {
+                        bestMatchName = lastLine.replace('BEST MATCH:', '').trim();
+                    } else {
+                         const match = fullAnalysisText.match(/BEST MATCH:\s*([^\n]+)/i);
+                         if (match) bestMatchName = match[1].trim();
+                    }
+                }
+
+                // Split the analysis into sections for display
+                const analysisSections = fullAnalysisText.split('Analyze PPS');
+
+                PPS_DATA.forEach((pps, index) => {
+                    const section = analysisSections.find(s => s.includes(pps.name));
+                    let status = "Unknown";
+                    let color = "bg-gray-100 border-gray-400";
+                    let icon = '❓';
+                    
+                    if (pps.name === bestMatchName) {
+                        status = "BEST MATCH";
+                        color = "bg-green-100 border-green-500";
+                        icon = '✅';
+                    } else if (section && (section.includes('Rejection') || section.includes('Rejected'))) {
+                        status = "NOT SUITABLE";
+                        color = "bg-red-100 border-red-500";
+                        icon = '❌';
+                    } else {
+                        status = "SUITABLE";
+                        color = "bg-yellow-100 border-yellow-500";
+                        icon = '⚠️';
+                    }
+
+                    const analysisDetail = section ? section.substring(section.indexOf(':') + 1).trim() : "AI analysis pending/unavailable for this PPS.";
+                    
+                    // Create PPS Card
+                    listDiv.innerHTML += `
+                        <div class="card p-4 rounded-xl border-2 ${color}">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg font-bold">${icon} ${pps.name}</span>
+                                <span class="text-sm font-semibold text-gray-700">${pps.distance_km}km away</span>
+                            </div>
+                            <p class="text-xs text-gray-600 mb-2">Features: ${pps.features}</p>
+                            <div class="text-sm text-gray-800">
+                                <span class="font-bold">${status}:</span> 
+                                ${analysisDetail.replace(/\n/g, '<br>')}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                // Highlight the best match result
+                if (bestMatchName) {
+                    matchDiv.classList.remove('hidden');
+                    matchDiv.innerHTML = `
+                        <p class="text-2xl font-extrabold text-green-700">Best Match Found!</p>
+                        <p class="text-4xl font-extrabold text-indigo-700 my-2">${bestMatchName}</p>
+                        <p class="text-lg text-gray-700">Safest route for your family's specific needs. Now proceed to the **QR Passport** tab.</p>
+                    `.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+                }
+
+                citationDiv.classList.remove('hidden');
+
+
+            } catch (error) {
+                console.error("JamAI Routing Error:", error);
+                matchDiv.classList.remove('hidden');
+                matchDiv.innerHTML = `<p class="text-lg font-bold text-red-600">Routing Failed</p><p class="text-sm">Could not connect to the AI brain. Please try again later.</p>`;
+                listDiv.innerHTML = '';
+            } finally {
+                button.disabled = false;
+                button.classList.remove('opacity-50');
+                button.textContent = '✨ Get Safe Route & Local Status';
+            }
+        }
+        
+        // --- Feature C: Rumour Killer (Grounded Q&A) - Code unchanged as requested ---
+
+        document.getElementById('rumour-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const inputEl = document.getElementById('rumour-input');
+            const query = inputEl.value.trim();
+            inputEl.value = ''; // Clear input field
+
+            if (!query) return;
+
+            await rumourKillerChat(query);
+        });
+
+        async function rumourKillerChat(query) {
+            const chatWindow = document.getElementById('chat-window');
+            const submitButton = document.getElementById('rumour-submit-button');
+            
+            // Add user message to chat window
+            chatWindow.innerHTML += `
+                <div class="user-message">${query}</div>
+            `;
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+
+            // Add loading indicator
+            const loadingHtml = `
+                <div id="ai-loading" class="ai-message">
+                    <span class="pulse-animation font-semibold">Thinking...</span>
+                </div>
+            `;
+            chatWindow.innerHTML += loadingHtml;
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+
+            submitButton.disabled = true;
+            submitButton.classList.add('opacity-50');
+            
+            try {
+                // System prompt to define the AI's role
+                const systemPrompt = "You are the 'Rumour Killer' AI, a dedicated disaster management bot. Use up-to-date, real-time search results to answer questions about disaster status, SOPs, and verify rumors. Provide a clear, factual answer based on the search results. If you cannot verify the information, state it politely.";
+
+                const payload = {
+                    contents: [{ parts: [{ text: query }] }],
+                    tools: [{ "google_search": {} }], // Enable Google Search Grounding
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+
+                const response = await fetch(GEMINI_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                let text = "Sorry, I couldn't get a response from the network.";
+                let sources = [];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    text = candidate.content.parts[0].text;
+                    
+                    // Extract grounding sources
+                    const groundingMetadata = candidate.groundingMetadata;
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title);
+                    }
+                }
+                
+                // Format the sources for display
+                let sourceHtml = '';
+                if (sources.length > 0) {
+                    sourceHtml = '<div class="mt-2 pt-2 border-t border-gray-300 text-xs text-gray-600 font-medium">Sources:</div>';
+                    sources.forEach((source, index) => {
+                        sourceHtml += `<p class="text-xs text-gray-500 hover:text-indigo-500"><a href="${source.uri}" target="_blank" rel="noopener noreferrer">${index + 1}. ${source.title}</a></p>`;
+                    });
+                }
+                
+                // Remove loading indicator and add AI response
+                document.getElementById('ai-loading')?.remove();
+                
+                chatWindow.innerHTML += `
+                    <div class="ai-message">
+                        <p class="text-sm whitespace-pre-wrap">${text}</p>
+                        ${sourceHtml}
+                    </div>
+                `;
+            } catch (error) {
+                console.error("JamAI Rumour Killer Error:", error);
+                document.getElementById('ai-loading')?.remove();
+                chatWindow.innerHTML += `
+                    <div class="ai-message bg-red-100 text-red-700 border-red-300">
+                        <p class="text-sm font-bold">Network error or API failure. Please check your connection and try again.</p>
+                    </div>
+                `;
+            } finally {
+                submitButton.disabled = false;
+                submitButton.classList.remove('opacity-50');
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            }
+        }
+    </script>
+</body>
+</html>
