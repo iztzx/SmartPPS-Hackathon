@@ -416,8 +416,13 @@
         // --- Utility Helpers ---
         function makeJamaiHeaders() {
             const h = { 'Content-Type': 'application/json' };
+            // Always use a single Authorization header with Bearer scheme
             if (JAMAI_PAT) h['Authorization'] = 'Bearer ' + JAMAI_PAT;
-            if (JAMAI_PROJECT_ID) h['X-Project-Id'] = JAMAI_PROJECT_ID;
+            // Include both common project-id header casings to maximize compatibility
+            if (JAMAI_PROJECT_ID) {
+                h['X-PROJECT-ID'] = JAMAI_PROJECT_ID;
+                h['X-Project-Id'] = JAMAI_PROJECT_ID;
+            }
             return h;
         }
 
@@ -824,8 +829,9 @@
             const statusEl = document.getElementById('upload-sop-status');
             statusEl.textContent = 'Preparing upload...';
 
-            // Determine endpoint: prefer explicit JAMAI_TABLE_API_URL, else construct a candidate URL
-            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '')}/v1/projects/${JAMAI_PROJECT_ID}/tables` : null);
+            // Determine endpoint: prefer explicit `JAMAI_TABLE_API_URL`, else prefer the Add Rows path under `JAMAI_API_URL`.
+            // Add Rows canonical path: /api/v2/gen_tables/action/rows/add
+            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '')}/api/v2/gen_tables/action/rows/add` : null);
 
             if (!tableApiUrl) {
                 statusEl.textContent = 'Set window.JAMAI_TABLE_API_URL or JAMAI_API_URL+PROJECT_ID in config.js';
@@ -837,13 +843,20 @@
                 return { ok: false, error: 'Missing PAT' };
             }
 
-            // Build a best-effort payload. Many JamAI table APIs expect rows; adapt later if your endpoint differs.
+            // Build payload for Add Rows API (preferred). If your deployment expects a different shape, adjust JAMAI_TABLE_API_URL.
             const payload = {
-                // This shape is intentionally generic; your JamAI table endpoint may require a different shape (e.g., columns/rows schema)
-                rows: [
-                    { id: `sop-${Date.now()}`, data: { title: "Malaysian Flood SOP (summary)", text: SOP_KNOWLEDGE } }
+                table_id: 'emergency_routing',
+                data: [
+                    {
+                        action: 'sop_upload',
+                        title: 'Malaysian Flood SOP (summary)',
+                        text: SOP_KNOWLEDGE,
+                        source: 'safe-route-ui',
+                        created_at: new Date().toISOString()
+                    }
                 ],
-                metadata: { source: 'safe-route-ui', created_at: new Date().toISOString() }
+                stream: false,
+                concurrent: false
             };
 
             try {

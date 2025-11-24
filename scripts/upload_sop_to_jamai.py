@@ -52,12 +52,16 @@ def build_table_endpoint(project_id, api_url):
     return f"{api_url.rstrip('/')}/v1/projects/{project_id}/tables"
 
 
-def upload_via_requests(url, pat, payload):
+def upload_via_requests(url, pat, payload, project_id=None):
     if requests is None:
         raise RuntimeError('The requests package is required for HTTP fallback. Install with `pip install requests`')
     headers = {'Content-Type': 'application/json'}
     if pat:
         headers['Authorization'] = f'Bearer {pat}'
+    # Include project header when provided — some JamAI deployments require it
+    if project_id:
+        headers['X-PROJECT-ID'] = project_id
+        headers['X-Project-Id'] = project_id
     try:
         resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
         return resp.status_code, resp.text
@@ -123,7 +127,7 @@ def main():
     body = None
     for url in candidates:
         print(f'Trying: {url}')
-        status, body = upload_via_requests(url, pat, payload)
+        status, body = upload_via_requests(url, pat, payload, project_id)
         if status is None:
             print('Network/client error:', body)
             continue

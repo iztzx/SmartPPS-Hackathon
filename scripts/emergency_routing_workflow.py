@@ -107,12 +107,16 @@ def route_optimal_pps(api_url, pat, tags, location_str='Unknown'):
     return best, full_text, status, result
 
 
-def try_post_table_rows(url, pat, rows_payload):
+def try_post_table_rows(url, pat, rows_payload, project_id=None):
     if requests is None:
         raise RuntimeError('requests library required (pip install requests)')
     headers = {'Content-Type': 'application/json'}
     if pat:
         headers['Authorization'] = f'Bearer {pat}'
+    # add project header when provided (some JamAI deployments require project id header)
+    if project_id:
+        headers['X-PROJECT-ID'] = project_id
+        headers['X-Project-Id'] = project_id
     try:
         resp = requests.post(url, headers=headers, data=json.dumps(rows_payload), timeout=30)
         try:
@@ -187,7 +191,7 @@ def main():
         print('Trying to POST decode row to', url)
         # If URL looks like the Add Rows endpoint, send add_rows_payload, otherwise try legacy payload
         payload = add_rows_payload if '/api/v2/gen_tables/' in url or url.endswith('/rows/add') else legacy_rows_payload
-        status, body = try_post_table_rows(url, pat, payload)
+        status, body = try_post_table_rows(url, pat, payload, project_id)
         print('Status:', status)
         print('Body:', json.dumps(body) if isinstance(body, (dict, list)) else body)
         if status and 200 <= status < 300:
@@ -219,7 +223,7 @@ def main():
     for url in candidate_urls:
         print('Trying to POST route row to', url)
         payload = add_rows_payload2 if '/api/v2/gen_tables/' in url or url.endswith('/rows/add') else legacy_rows_payload2
-        status, body = try_post_table_rows(url, pat, payload)
+        status, body = try_post_table_rows(url, pat, payload, project_id)
         print('Status:', status)
         print('Body:', json.dumps(body) if isinstance(body, (dict, list)) else body)
         if status and 200 <= status < 300:
