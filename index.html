@@ -338,22 +338,22 @@
         }
 
         async function getGPSLocation() {
-             return new Promise((resolve, reject) => {
+            return new Promise((resolve, reject) => {
                 if (!navigator.geolocation) return reject("Geolocation not supported.");
                 const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
-                
+
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
                         userLocation.lat = position.coords.latitude;
                         userLocation.lon = position.coords.longitude;
-                        userLocation.city = 'Your GPS Area'; 
+                        userLocation.city = 'Your GPS Area';
                         userLocation.region = 'GPS Detected';
                         userLocation.source = 'GPS';
                         resolve(true);
                     },
                     (error) => {
                         console.warn('Geolocation Error:', error.code, error.message);
-                        reject(`Geolocation failed: ${error.message}`);
+                        reject(error);
                     }, options
                 );
             });
@@ -380,21 +380,124 @@
             display.classList.add('pulse-animation');
             display.innerHTML = 'Detecting location via GPS...';
 
-            let locationFound = false;
-            try { await getGPSLocation(); locationFound = true; } catch (e) { 
-                display.innerHTML = 'Detecting location via IP...';
-                locationFound = await getIPLocation();
-            }
+            // Improved flow:
+            // - If permission is 'granted', attempt GPS immediately
+            // - If permission is 'prompt', start IP fallback immediately while GPS prompt is pending
+            // - Keep retrying GPS in background and update UI if GPS becomes available later
+            let gpsAttempt = null;
+            let ipAttempt = null;
+            let permissionStatus = null;
 
-            if (!locationFound) {
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    try {
+                        permissionStatus = await navigator.permissions.query({ name: 'geolocation' });
+                    } catch (err) {
+                        permissionStatus = null;
+                    }
+                }
+
+                if (permissionStatus && permissionStatus.state === 'granted') {
+                    // Fast path: permission already granted
+                    try {
+                        await getGPSLocation();
+                        updateLocationUI();
+                        return;
+                    } catch (e) { console.warn('GPS attempt after granted failed', e); }
+                }
+
+                // Start IP fallback immediately so user sees something while GPS prompt may be shown
+                ipAttempt = getIPLocation();
+
+                // Start a background GPS attempt with retries (non-blocking)
+                gpsAttempt = (async () => {
+                    const attempts = [3000, 5000, 8000];
+                    for (const t of attempts) {
+                        try {
+                            await new Promise((res, rej) => {
+                                navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: t });
+                            });
+                            // If succeeded, call high-level getGPSLocation to set userLocation fields
+                            await getGPSLocation();
+                            return true;
+                        } catch (err) {
+                            // Permission denied -> stop retrying
+                            if (err && err.code === 1) {
+                                console.warn('User denied geolocation permission.');
+                                throw err;
+                            }
+                            console.warn('GPS retry failed, will retry:', err && err.message ? err.message : err);
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    }
+                    return false;
+                })();
+
+                // If permissionStatus exists, listen for changes so we can immediately retry when user grants
+                if (permissionStatus && typeof permissionStatus.addEventListener === 'function') {
+                    const onChange = async () => {
+                        try {
+                            if (permissionStatus.state === 'granted') {
+                                console.log('Geolocation permission granted (change event). Retrying GPS.');
+                                try {
+                                    await getGPSLocation();
+                                    updateLocationUI();
+                                } catch (e) { console.warn('GPS after permission change failed', e); }
+                            }
+                        } catch (e) { console.warn('permissionStatus onchange handler error', e); }
+                    };
+                    try { permissionStatus.addEventListener('change', onChange); } catch (e) { try { permissionStatus.onchange = onChange; } catch(_){} }
+                }
+
+                // Use whichever resolves first: GPS success or IP fallback
+                let usedGPS = false;
+                try {
+                    const winner = await Promise.race([gpsAttempt.catch(() => false), ipAttempt.catch(() => false)]);
+                    if (winner === true) {
+                        usedGPS = true;
+                    } else {
+                        const ipOk = await ipAttempt.catch(() => false);
+                        if (ipOk) usedGPS = false;
+                        else {
+                            usedGPS = false;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Race between GPS/IP failed', e);
+                }
+
+                if (usedGPS) {
+                    updateLocationUI();
+                    return;
+                }
+
+                // If IP fallback succeeded, use that result
+                const ipOkNow = await ipAttempt.catch(() => false);
+                if (ipOkNow) {
+                    updateLocationUI();
+                    // but keep gpsAttempt running in background; if it later succeeds, update UI
+                    gpsAttempt.then((res) => {
+                        if (res) updateLocationUI();
+                    }).catch(() => {});
+                    return;
+                }
+
+                // If neither produced a location, require manual input
                 userLocation.source = 'Manual Input Required';
                 userLocation.city = 'N/A';
                 userLocation.region = 'N/A';
                 userLocation.lat = 0;
                 userLocation.lon = 0;
-            }
+                updateLocationUI();
 
-            updateLocationUI();
+            } catch (e) {
+                console.warn('getUserLocation top-level error', e);
+                userLocation.source = 'Manual Input Required';
+                userLocation.city = 'N/A';
+                userLocation.region = 'N/A';
+                userLocation.lat = 0; userLocation.lon = 0;
+                updateLocationUI();
+            }
         }
 
         document.getElementById('manual-location-form').addEventListener('submit', (e) => {
