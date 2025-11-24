@@ -41,128 +41,176 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
-    <!-- Firebase SDKs (using modules) -->
+    <!-- Supabase client (replaces Firebase) -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
 
-        // Set logging to debug for visibility
-        setLogLevel('Debug');
+        // Supabase configuration (provided by user)
+        const SUPABASE_URL = 'https://rdqbxfujtmpoeyqfwwll.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_JeBUvr0YNVsQOi6ZeAvViA_JW5134nF';
+        const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        let app, db, auth;
         let userId = null;
         let isAuthReady = false;
 
-        // Initialize Firebase and Auth
-        try {
-            if (Object.keys(firebaseConfig).length > 0) {
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                // Authentication setup
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                    } else {
-                        // Sign in anonymously if no token or user is logged out
-                        try {
-                            if (initialAuthToken) {
-                                await signInWithCustomToken(auth, initialAuthToken);
-                                userId = auth.currentUser.uid;
-                            } else {
-                                await signInAnonymously(auth);
-                                userId = auth.currentUser.uid;
-                            }
-                        } catch (error) {
-                            console.error("Firebase Auth Error:", error);
-                            // Fallback to a random ID if sign-in fails, but private data access will fail security rules
-                            userId = crypto.randomUUID();
-                        }
+        async function initAuth() {
+            try {
+                // If the host provided an auth token, attempt to use it
+                if (initialAuthToken && supabase?.auth?.setAuth) {
+                    try {
+                        // Best-effort: set the access token for the client
+                        await supabase.auth.setAuth(initialAuthToken);
+                    } catch (e) {
+                        // Fallback: try setSession if available
+                        try { await supabase.auth.setSession({ access_token: initialAuthToken }); } catch (e2) { /* ignore */ }
                     }
+                }
 
-                    isAuthReady = true;
-                    // Store global instances for window access
-                    window.db = db;
-                    window.auth = auth;
-                    window.userId = userId;
-                    window.isAuthReady = isAuthReady;
-
-                    console.log("Firebase Ready. User ID:", userId);
-                    document.getElementById('user-id-display').textContent = 'User ID: ' + userId;
-
-                    // Once authenticated, load user data and setup snapshot listener
-                    if (userId) {
+                // Listen for auth state changes (sign in / sign out)
+                supabase.auth.onAuthStateChange((event, session) => {
+                    const signedUser = session?.user ?? null;
+                    if (signedUser && signedUser.id) {
+                        userId = signedUser.id;
+                        console.log('Signed in as', userId);
+                        // After successful auth, load profile from Supabase
                         window.loadFamilyData();
+                    } else {
+                        // Not signed in
+                        userId = crypto.randomUUID();
+                        console.log('No active Supabase session; using temporary id for UI only.');
                     }
+                    window.userId = userId;
+                    document.getElementById('user-id-display').textContent = 'User ID: ' + userId;
                 });
-            } else {
-                console.error("Firebase configuration is missing.");
-                userId = crypto.randomUUID(); // Mock ID for UI display
+
+                // Check existing session once at startup
+                const { data: { session } = {} } = await supabase.auth.getSession().catch(() => ({}));
+                if (session?.user?.id) {
+                    userId = session.user.id;
+                } else {
+                    userId = crypto.randomUUID();
+                    console.warn('No Supabase session found — using temporary ID. RLS-protected operations will fail until user signs in.');
+                }
+            } catch (e) {
+                console.error('Supabase auth init error:', e);
+                userId = crypto.randomUUID();
+            } finally {
+                window.supabase = supabase;
                 window.userId = userId;
-                document.getElementById('user-id-display').textContent = 'User ID (unauthenticated): ' + userId;
+                window.isAuthReady = true;
+                document.getElementById('user-id-display').textContent = 'User ID: ' + userId;
+                console.log('Supabase Ready. User ID:', userId);
+
+                if (userId) window.loadFamilyData();
             }
-        } catch (e) {
-            console.error("Error initializing Firebase:", e);
         }
 
-        /**
-         * The family data is saved in a private collection for the user.
-         * Path: /artifacts/{appId}/users/{userId}/family_data/profile
-         */
-        window.getFamilyProfileRef = () => {
-            if (!db || !userId) return null;
-            return doc(db, `artifacts/${appId}/users/${userId}/family_data`, 'profile');
-        };
+        initAuth();
 
+        // Return a lightweight ref object for compatibility with the rest of the UI code
+        window.getFamilyProfileRef = () => ({ table: 'profiles', id: userId });
+
+        // Save family data into the `profiles` table using the SQL schema provided
         window.saveFamilyData = async (data) => {
-            const profileRef = window.getFamilyProfileRef();
-            if (!profileRef) {
-                console.error("Cannot save: Firestore or User ID not ready.");
-                return;
-            }
+            if (!userId) { console.error('Cannot save: userId missing.'); return false; }
+
+            const payload = {
+                id: userId,
+                head_name: data.headName || null,
+                ic_number: data.icNumber || null,
+                home_address: data.address || null,
+                family_size: data.familySize || null,
+                vulnerabilities: data.vulnerabilities || [],
+                jkm_payload: data.jkmPayload || null,
+                last_known_location_city: (window.userLocation && window.userLocation.city) || null,
+                last_known_location_lat: (window.userLocation && window.userLocation.lat) || null,
+                last_known_location_lon: (window.userLocation && window.userLocation.lon) || null,
+            };
+
             try {
-                await setDoc(profileRef, data, { merge: true });
-                console.log("Family data saved successfully.");
-                // Data will be re-rendered via the onSnapshot listener
+                const { error } = await supabase
+                    .from('profiles')
+                    .upsert(payload, { returning: 'representation' });
+
+                if (error) {
+                    console.error('Supabase upsert error:', error);
+                    return false;
+                }
+
+                // Refresh local copy after save
+                await window.loadFamilyData();
+                console.log('Family data saved to Supabase.');
                 return true;
             } catch (e) {
-                console.error("Error saving document:", e);
+                console.error('Supabase save error:', e);
                 return false;
             }
         };
 
-        window.loadFamilyData = () => {
-            const profileRef = window.getFamilyProfileRef();
-            if (!profileRef) {
-                console.warn("Cannot load: Firestore or User ID not ready.");
-                return;
-            }
+        // Load family data for the current user and update the UI
+        window.loadFamilyData = async () => {
+            if (!userId) { console.warn('No userId yet, skipping load.'); return; }
 
-            // Real-time listener for family data
-            onSnapshot(profileRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    window.familyData = data;
-                    console.log("Real-time data update:", data);
-                    window.updateUIAfterDataLoad(data);
+            try {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', userId)
+                    .single();
+
+                if (error && error.code !== 'PGRST116') {
+                    // PGRST116 is "No rows found"; ignore that as empty state
+                    console.error('Supabase select error:', error);
+                }
+
+                if (data) {
+                    const normalized = {
+                        headName: data.head_name,
+                        icNumber: data.ic_number,
+                        address: data.home_address,
+                        familySize: data.family_size,
+                        vulnerabilities: data.vulnerabilities || [],
+                        jkmPayload: data.jkm_payload,
+                        updated_at: data.updated_at,
+                    };
+                    window.familyData = normalized;
+                    window.updateUIAfterDataLoad(window.familyData);
                 } else {
                     window.familyData = {};
-                    console.log("No family data found.");
                     window.updateUIAfterDataLoad({});
                 }
-            }, (error) => {
-                console.error("Snapshot error:", error);
-            });
-        };
+            } catch (e) {
+                console.error('Supabase load error:', e);
+            }
 
+            // Attempt realtime subscription (best-effort; optional)
+            try {
+                if (supabase.channel) {
+                    // v2 realtime API
+                    const channel = supabase.channel('public:profiles:' + userId)
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` }, (payload) => {
+                            console.log('Realtime payload:', payload);
+                            if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+                                window.loadFamilyData();
+                            }
+                        });
+                    await channel.subscribe();
+                    window._profilesRealtimeChannel = channel;
+                } else if (supabase.from) {
+                    // fallback to older client realtime method
+                    supabase.from(`profiles:id=eq.${userId}`).on('UPDATE', payload => {
+                        console.log('Realtime update', payload);
+                        window.loadFamilyData();
+                    }).subscribe();
+                }
+            } catch (e) {
+                console.warn('Realtime subscribe failed (optional):', e);
+            }
+        };
     </script>
 
     <!-- Main App Content -->
@@ -170,6 +218,34 @@
         <h1 class="text-2xl font-extrabold tracking-tight">SafeRoute: Family-First Disaster Hub</h1>
         <p id="user-id-display" class="text-sm opacity-80 mt-1"></p>
     </header>
+
+    <!-- Auth Controls (improved UX) -->
+    <div id="auth-container" class="p-3 bg-white border-b border-gray-200">
+        <div class="max-w-4xl mx-auto flex items-center gap-3">
+            <!-- Logged-out view -->
+            <div id="auth-loggedout" class="flex items-center gap-3">
+                <input id="auth-email-input" type="email" placeholder="you@example.com" class="rounded-lg border-gray-300 p-2" />
+                <button id="auth-signin-button" class="py-2 px-3 bg-indigo-600 text-white rounded-lg">Sign in (magic link)</button>
+                <button id="auth-resend-button" class="py-2 px-3 bg-yellow-100 text-yellow-800 rounded-lg hidden">Resend</button>
+            </div>
+
+            <!-- Logged-in view -->
+            <div id="auth-loggedin" class="hidden items-center gap-3">
+                <div class="flex items-center gap-3">
+                    <div id="auth-avatar" class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">U</div>
+                    <div>
+                        <div id="auth-user-email" class="text-sm font-semibold"></div>
+                        <div id="auth-user-id" class="text-xs text-gray-500"></div>
+                    </div>
+                </div>
+                <button id="auth-signout-button" class="py-2 px-3 bg-gray-200 rounded-lg">Sign out</button>
+            </div>
+
+            <div class="flex-1">
+                <span id="auth-status" class="text-sm text-gray-600 ml-4"></span>
+            </div>
+        </div>
+    </div>
 
     <!-- Tab Navigation -->
     <nav class="bg-white shadow-lg sticky top-0 z-10">
@@ -335,10 +411,11 @@
     </main>
 
     <!-- JavaScript Logic -->
+    <script src="./config.js"></script>
     <script>
-        // JamAI Base Configuration (PAT and Project ID are noted here but the standard Gemini API URL is used for execution)
-        const JAMAI_PAT = "jamai_pat_2e78e7a9f44d66ca4726d3520eb04477d7c02260745203df";
-        const JAMAI_PROJECT_ID = "proj_b4b113dc379b88886dc8e437"; 
+        // JamAI Base Configuration (loaded from ./config.js if present)
+        const JAMAI_PAT = window.JAMAI_PAT || "";
+        const JAMAI_PROJECT_ID = window.JAMAI_PROJECT_ID || "";
         
         const IP2LOCATION_KEY = "D2D17B84A589ED1060A87E4DD69AC1A9";
         // Querying without an IP will use the client's public IP (IPv4 or IPv6)
@@ -482,6 +559,94 @@
                 updateLocationUI();
             }
         });
+
+        // --- Auth UI helpers ---
+        function updateAuthUI(session) {
+            const loggedOut = document.getElementById('auth-loggedout');
+            const loggedIn = document.getElementById('auth-loggedin');
+            const statusEl = document.getElementById('auth-status');
+
+            if (session && session.user) {
+                const user = session.user;
+                loggedOut.classList.add('hidden');
+                loggedIn.classList.remove('hidden');
+                document.getElementById('auth-user-email').textContent = user.email || user.id;
+                document.getElementById('auth-user-id').textContent = `ID: ${user.id}`;
+                document.getElementById('auth-avatar').textContent = (user.email || 'U').charAt(0).toUpperCase();
+                statusEl.textContent = 'Signed in';
+            } else {
+                loggedOut.classList.remove('hidden');
+                loggedIn.classList.add('hidden');
+                statusEl.textContent = '';
+            }
+        }
+
+        // wire sign-in (magic link) with nicer UX
+        document.getElementById('auth-signin-button').addEventListener('click', async (e) => {
+            const emailInput = document.getElementById('auth-email-input');
+            const email = emailInput.value.trim();
+            const statusEl = document.getElementById('auth-status');
+            const resendBtn = document.getElementById('auth-resend-button');
+
+            if (!email) { statusEl.textContent = 'Enter a valid email.'; return; }
+            emailInput.disabled = true;
+            e.target.disabled = true;
+            statusEl.textContent = 'Sending magic link...';
+
+            try {
+                const { data, error } = await window.supabase.auth.signInWithOtp({ email });
+                if (error) {
+                    console.error('Sign-in error:', error);
+                    statusEl.textContent = 'Sign-in failed. Check console.';
+                } else {
+                    statusEl.textContent = 'Magic link sent. Check your email.';
+                    resendBtn.classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error('Sign-in exception:', err);
+                statusEl.textContent = 'Sign-in error. Check console.';
+            } finally {
+                emailInput.disabled = false;
+                e.target.disabled = false;
+            }
+        });
+
+        // Resend handler (same UX)
+        document.getElementById('auth-resend-button').addEventListener('click', async (e) => {
+            const emailInput = document.getElementById('auth-email-input');
+            const email = emailInput.value.trim();
+            const statusEl = document.getElementById('auth-status');
+            if (!email) { statusEl.textContent = 'Enter a valid email to resend.'; return; }
+            statusEl.textContent = 'Resending magic link...';
+            try {
+                const { data, error } = await window.supabase.auth.signInWithOtp({ email });
+                if (error) { statusEl.textContent = 'Resend failed. Check console.'; console.error(error); }
+                else statusEl.textContent = 'Magic link resent. Check your email.';
+            } catch (err) { console.error(err); statusEl.textContent = 'Resend error.'; }
+        });
+
+        // sign-out
+        document.getElementById('auth-signout-button').addEventListener('click', async (e) => {
+            const statusEl = document.getElementById('auth-status');
+            try {
+                await window.supabase.auth.signOut();
+                statusEl.textContent = 'Signed out.';
+                updateAuthUI(null);
+            } catch (err) {
+                console.error('Sign-out error:', err);
+                statusEl.textContent = 'Sign-out failed. Check console.';
+            }
+        });
+
+        // Keep UI in sync with session on load
+        (async () => {
+            try {
+                const { data: { session } = {} } = await window.supabase.auth.getSession().catch(() => ({}));
+                updateAuthUI(session);
+            } catch (e) {
+                console.warn('Auth session check failed:', e);
+            }
+        })();
 
 
         // --- Tab Management ---

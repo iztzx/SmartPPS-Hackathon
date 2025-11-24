@@ -1,0 +1,14 @@
+// Small runtime config file for JamAI credentials and non-sensitive defaults.
+// WARNING: Do NOT commit production secrets to a public repo. This file is intended
+// for local development or private deployments only.
+
+// JamAI Base Personal Access Token (PAT)
+window.JAMAI_PAT = "jamai_pat_2e78e7a9f44d66ca4726d3520eb04477d7c02260745203df";
+
+// JamAI Project ID
+window.JAMAI_PROJECT_ID = "proj_b4b113dc379b88886dc8e437";
+
+// You may also add other client-side defaults here if needed.
+
+// To keep secrets safe in production, provide these values via a secure server-side
+// endpoint or environment injection rather than embedding them in a static file.
