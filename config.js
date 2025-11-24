@@ -7,10 +7,17 @@ window.JAMAI_PAT = "jamai_pat_2e78e7a9f44d66ca4726d3520eb04477d7c02260745203df";
 
 // JamAI Project ID
 window.JAMAI_PROJECT_ID = "proj_b4b113dc379b88886dc8e437";
-
+window.JAMAI_TABLE_API_URL = 'https://api.jamaibase.com/api/v2/gen_tables/action/rows/add'
 // Optional: JamAI API URL (if your JamAI Base exposes a different endpoint)
-// Example: window.JAMAI_API_URL = 'https://api.jamai.example/v1/generate';
+
 window.JAMAI_API_URL = window.JAMAI_API_URL || '';
+
+// By default, disable Supabase-backed auth and remote writes so the app works
+// immediately without any login. Set to `true` to enable Supabase behavior.
+window.ENABLE_SUPABASE = false;
+
+// If you prefer the app to start in authenticated mode with Supabase enabled,
+// set `window.ENABLE_SUPABASE = true` and provide SUPABASE_URL/KEY via safe injection.
 
 // You may also add other client-side defaults here if needed.
 
