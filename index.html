@@ -116,6 +116,32 @@
 
         // Save family data into the `profiles` table using the SQL schema provided
         window.saveFamilyData = async (data) => {
+            // If guest mode is active, persist locally (no Supabase write)
+            const isGuest = window.isGuest === true;
+            if (isGuest) {
+                try {
+                    const guestKey = `smartpps_profile_${window.userId}`;
+                    const stored = {
+                        headName: data.headName || null,
+                        icNumber: data.icNumber || null,
+                        address: data.address || null,
+                        familySize: data.familySize || null,
+                        vulnerabilities: data.vulnerabilities || [],
+                        jkmPayload: data.jkmPayload || null,
+                        last_known_location: (window.userLocation && { city: window.userLocation.city, lat: window.userLocation.lat, lon: window.userLocation.lon }) || null,
+                        saved_at: new Date().toISOString(),
+                    };
+                    localStorage.setItem(guestKey, JSON.stringify(stored));
+                    window.familyData = stored;
+                    window.updateUIAfterDataLoad(window.familyData);
+                    console.log('Family data saved locally (guest mode).');
+                    return true;
+                } catch (e) {
+                    console.error('Guest save error:', e);
+                    return false;
+                }
+            }
+
             if (!userId) { console.error('Cannot save: userId missing.'); return false; }
 
             const payload = {
@@ -153,6 +179,26 @@
 
         // Load family data for the current user and update the UI
         window.loadFamilyData = async () => {
+            const isGuest = window.isGuest === true;
+
+            if (isGuest) {
+                try {
+                    const guestKey = `smartpps_profile_${window.userId}`;
+                    const stored = localStorage.getItem(guestKey);
+                    if (stored) {
+                        const data = JSON.parse(stored);
+                        window.familyData = data;
+                        window.updateUIAfterDataLoad(window.familyData);
+                    } else {
+                        window.familyData = {};
+                        window.updateUIAfterDataLoad({});
+                    }
+                } catch (e) {
+                    console.error('Guest load error:', e);
+                }
+                return;
+            }
+
             if (!userId) { console.warn('No userId yet, skipping load.'); return; }
 
             try {
@@ -241,8 +287,22 @@
                 <button id="auth-signout-button" class="py-2 px-3 bg-gray-200 rounded-lg">Sign out</button>
             </div>
 
-            <div class="flex-1">
-                <span id="auth-status" class="text-sm text-gray-600 ml-4"></span>
+            <div class="flex-1 flex items-center justify-end gap-4">
+                <label class="text-sm text-gray-600">Guest Mode</label>
+                <input id="guest-toggle" type="checkbox" checked class="h-5 w-5" />
+                <div>
+                    <span id="auth-status" class="text-sm text-gray-600 ml-4"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Migration banner (shows when guest data exists and user signs in) -->
+    <div id="migrate-banner" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-3">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            <div class="text-sm text-yellow-800">We detected local (guest) profile data. Would you like to migrate it to your account?</div>
+            <div class="flex items-center gap-2">
+                <button id="migrate-button" class="py-2 px-3 bg-indigo-600 text-white rounded-lg">Migrate to my account</button>
+                <button id="migrate-dismiss" class="py-2 px-3 bg-gray-100 rounded-lg">Dismiss</button>
             </div>
         </div>
     </div>
@@ -416,6 +476,24 @@
         // JamAI Base Configuration (loaded from ./config.js if present)
         const JAMAI_PAT = window.JAMAI_PAT || "";
         const JAMAI_PROJECT_ID = window.JAMAI_PROJECT_ID || "";
+        // Optional: provide a JamAI API URL in `config.js` as `window.JAMAI_API_URL`
+        const JAMAI_API_URL = window.JAMAI_API_URL || null;
+
+        // Default to guest mode (local-only) for easier UX; toggle in UI to sign in
+        window.isGuest = (typeof window.isGuest === 'boolean') ? window.isGuest : true;
+
+        // Persist a stable guest id in localStorage so guest data can be migrated later
+        const GUEST_ID_KEY = 'smartpps_guest_id';
+        let guestId = localStorage.getItem(GUEST_ID_KEY);
+        if (!guestId) {
+            guestId = 'guest-' + crypto.randomUUID();
+            localStorage.setItem(GUEST_ID_KEY, guestId);
+        }
+
+        if (window.isGuest) {
+            window.userId = window.userId || guestId;
+            try { document.getElementById('user-id-display').textContent = 'User ID: ' + window.userId; } catch (e) {}
+        }
         
         const IP2LOCATION_KEY = "D2D17B84A589ED1060A87E4DD69AC1A9";
         // Querying without an IP will use the client's public IP (IPv4 or IPv6)
@@ -424,6 +502,8 @@
         const API_KEY = ""; // Placeholder, will be provided by Canvas runtime
         // Using same model for all LLM tasks
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+        // Resolve the LLM endpoint: prefer JamAI API URL if provided, otherwise fall back to GEMINI
+        const LLM_API_URL = JAMAI_API_URL || GEMINI_API_URL;
         
         let familyData = {};
         // Default coordinates are now set to a generic Malaysian center (KL) for safety, but will be overwritten by GPS/IP
@@ -560,6 +640,43 @@
             }
         });
 
+        // Guest toggle wiring
+        document.getElementById('guest-toggle').addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            window.isGuest = checked;
+            const statusEl = document.getElementById('auth-status');
+            if (checked) {
+                // Generate a guest id and show it
+                window.userId = 'guest-' + crypto.randomUUID();
+                document.getElementById('user-id-display').textContent = 'User ID: ' + window.userId;
+                statusEl.textContent = 'Guest mode enabled (local only)';
+                // hide logged-in UI if present
+                document.getElementById('auth-loggedout').classList.remove('hidden');
+                document.getElementById('auth-loggedin').classList.add('hidden');
+                // load any local guest data
+                window.loadFamilyData();
+            } else {
+                statusEl.textContent = '';
+                // reset to check session
+                (async () => {
+                    try {
+                        const { data: { session } = {} } = await window.supabase.auth.getSession().catch(() => ({}));
+                        if (session && session.user) {
+                            window.userId = session.user.id;
+                            updateAuthUI(session);
+                            window.loadFamilyData();
+                        } else {
+                            // no session, re-enable sign-in view
+                            document.getElementById('auth-loggedout').classList.remove('hidden');
+                            document.getElementById('auth-loggedin').classList.add('hidden');
+                            window.userId = crypto.randomUUID();
+                            document.getElementById('user-id-display').textContent = 'User ID: ' + window.userId;
+                        }
+                    } catch (e) { console.warn(e); }
+                })();
+            }
+        });
+
         // --- Auth UI helpers ---
         function updateAuthUI(session) {
             const loggedOut = document.getElementById('auth-loggedout');
@@ -643,10 +760,75 @@
             try {
                 const { data: { session } = {} } = await window.supabase.auth.getSession().catch(() => ({}));
                 updateAuthUI(session);
+                // If a session exists, check for guest data to migrate
+                if (session && session.user) {
+                    checkGuestProfileAndShowMigration(session.user.id);
+                }
             } catch (e) {
                 console.warn('Auth session check failed:', e);
             }
         })();
+
+        // When auth state changes (sign in/out), check for guest migration opportunity
+        supabase.auth.onAuthStateChange((event, session) => {
+            updateAuthUI(session);
+            if (session && session.user) {
+                checkGuestProfileAndShowMigration(session.user.id);
+            } else {
+                // signed out, hide migration banner
+                document.getElementById('migrate-banner').classList.add('hidden');
+            }
+        });
+
+        // Check if there's guest data stored locally and show migration banner if so
+        function checkGuestProfileAndShowMigration(supabaseUserId) {
+            try {
+                const guestId = localStorage.getItem('smartpps_guest_id');
+                if (!guestId) return;
+                const guestKey = `smartpps_profile_${guestId}`;
+                const stored = localStorage.getItem(guestKey);
+                if (stored) {
+                    // show banner
+                    const banner = document.getElementById('migrate-banner');
+                    banner.classList.remove('hidden');
+                    // wire migrate button
+                    document.getElementById('migrate-button').onclick = async () => {
+                        document.getElementById('migrate-button').disabled = true;
+                        document.getElementById('migrate-button').textContent = 'Migrating...';
+                        const payload = JSON.parse(stored);
+                        // Build formData expected by saveFamilyData
+                        const formData = {
+                            headName: payload.headName || payload.head_name || null,
+                            icNumber: payload.icNumber || payload.ic_number || null,
+                            address: payload.address || payload.home_address || null,
+                            familySize: payload.familySize || payload.family_size || null,
+                            vulnerabilities: payload.vulnerabilities || [],
+                            jkmPayload: payload.jkmPayload || payload.jkm_payload || null,
+                        };
+
+                        // Ensure we are using authenticated user id for save
+                        window.isGuest = false;
+                        window.userId = supabaseUserId;
+
+                        const ok = await window.saveFamilyData(formData);
+                        if (ok) {
+                            // remove guest data after migration
+                            localStorage.removeItem(guestKey);
+                            // optionally keep guest id but remove profile
+                            document.getElementById('migrate-button').textContent = 'Migrated ✓';
+                            setTimeout(() => { document.getElementById('migrate-banner').classList.add('hidden'); }, 1500);
+                        } else {
+                            document.getElementById('migrate-button').textContent = 'Retry migration';
+                            document.getElementById('migrate-button').disabled = false;
+                        }
+                    };
+
+                    document.getElementById('migrate-dismiss').onclick = () => {
+                        document.getElementById('migrate-banner').classList.add('hidden');
+                    };
+                }
+            } catch (e) { console.warn('checkGuestProfileAndShowMigration:', e); }
+        }
 
 
         // --- Tab Management ---
@@ -769,6 +951,24 @@
                 statusEl.classList.remove('text-red-500');
                 statusEl.classList.add('text-green-600');
                 copyButton.classList.remove('hidden');
+                // Show email button to allow sending QR/payload via user's mail client
+                document.getElementById('copy-payload-button').classList.remove('hidden');
+                if (!document.getElementById('email-payload-button')) {
+                    const btn = document.createElement('button');
+                    btn.id = 'email-payload-button';
+                    btn.className = 'py-2 px-4 border rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition ml-2';
+                    btn.textContent = 'Email QR/Payload';
+                    btn.addEventListener('click', async () => {
+                        const to = prompt('Enter recipient email to send the JKM payload to:');
+                        if (!to) return;
+                        const payload = data.jkmPayload || JSON.stringify(data, null, 0);
+                        const subject = encodeURIComponent('JKM QR Passport Payload');
+                        const body = encodeURIComponent(`Payload:\n${payload}\n\nYou can also view this payload at: ${location.origin}${location.pathname}?jkm=${encodeURIComponent(payload)}`);
+                        // open mail client
+                        window.location.href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`;
+                    });
+                    document.getElementById('qr-container').appendChild(btn);
+                }
 
                 // Update preview
                 previewEl.textContent = data.jkmPayload;
@@ -876,9 +1076,13 @@
                     systemInstruction: { parts: [{ text: "You are a data decoder. Provide only a comma-separated list of standardized tags." }] },
                 };
 
-                const response1 = await fetch(GEMINI_API_URL, {
+                const jamaiHeaders = { 'Content-Type': 'application/json' };
+                if (JAMAI_PAT) jamaiHeaders['Authorization'] = 'Bearer ' + JAMAI_PAT;
+                if (JAMAI_PROJECT_ID) jamaiHeaders['X-Project-Id'] = JAMAI_PROJECT_ID;
+
+                const response1 = await fetch(LLM_API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: jamaiHeaders,
                     body: JSON.stringify(payload1)
                 });
                 const result1 = await response1.json();
@@ -931,9 +1135,13 @@
                     systemInstruction: { parts: [{ text: "You are an emergency status reporter providing only official, real-time Malaysian weather and alert data." }] },
                 };
 
-                const statusResponse = await fetch(GEMINI_API_URL, {
+                const jamaiHeaders2 = { 'Content-Type': 'application/json' };
+                if (JAMAI_PAT) jamaiHeaders2['Authorization'] = 'Bearer ' + JAMAI_PAT;
+                if (JAMAI_PROJECT_ID) jamaiHeaders2['X-Project-Id'] = JAMAI_PROJECT_ID;
+
+                const statusResponse = await fetch(LLM_API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: jamaiHeaders2,
                     body: JSON.stringify(statusPayload)
                 });
 
@@ -978,9 +1186,13 @@
                     systemInstruction: { parts: [{ text: systemPrompt }] },
                 };
 
-                const response2 = await fetch(GEMINI_API_URL, {
+                const jamaiHeaders3 = { 'Content-Type': 'application/json' };
+                if (JAMAI_PAT) jamaiHeaders3['Authorization'] = 'Bearer ' + JAMAI_PAT;
+                if (JAMAI_PROJECT_ID) jamaiHeaders3['X-Project-Id'] = JAMAI_PROJECT_ID;
+
+                const response2 = await fetch(LLM_API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: jamaiHeaders3,
                     body: JSON.stringify(payload2)
                 });
 
@@ -1112,9 +1324,13 @@
                     systemInstruction: { parts: [{ text: systemPrompt }] },
                 };
 
-                const response = await fetch(GEMINI_API_URL, {
+                const jamaiHeaders4 = { 'Content-Type': 'application/json' };
+                if (JAMAI_PAT) jamaiHeaders4['Authorization'] = 'Bearer ' + JAMAI_PAT;
+                if (JAMAI_PROJECT_ID) jamaiHeaders4['X-Project-Id'] = JAMAI_PROJECT_ID;
+
+                const response = await fetch(LLM_API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: jamaiHeaders4,
                     body: JSON.stringify(payload)
                 });
 

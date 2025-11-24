@@ -8,6 +8,10 @@ window.JAMAI_PAT = "jamai_pat_2e78e7a9f44d66ca4726d3520eb04477d7c02260745203df";
 // JamAI Project ID
 window.JAMAI_PROJECT_ID = "proj_b4b113dc379b88886dc8e437";
 
+// Optional: JamAI API URL (if your JamAI Base exposes a different endpoint)
+// Example: window.JAMAI_API_URL = 'https://api.jamai.example/v1/generate';
+window.JAMAI_API_URL = window.JAMAI_API_URL || '';
+
 // You may also add other client-side defaults here if needed.
 
 // To keep secrets safe in production, provide these values via a secure server-side

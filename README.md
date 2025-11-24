@@ -37,6 +37,54 @@ JamAI Base / LLM integration
  - A lightweight `config.js` file is included and can be used to provide `window.JAMAI_PAT` and `window.JAMAI_PROJECT_ID` for the client.
  - WARNING: Storing PATs in client-side files is insecure. For development it's acceptable, but in production you should proxy requests through a server or use secure environment injection.
 
+Connecting the AI Brain (JamAI)
+
+1. In `config.js`, set your JamAI credentials and (optionally) the API URL:
+
+```js
+// config.js (development-only)
+window.JAMAI_PAT = 'jamai_pat_...';
+window.JAMAI_PROJECT_ID = 'proj_...';
+// Optional: if JamAI Base exposes a custom endpoint, set it here
+window.JAMAI_API_URL = 'https://your-jamai.example/v1/generate';
+```
+
+2. How the client calls JamAI
+ - The app will prefer `window.JAMAI_API_URL` if provided; otherwise it falls back to the original Gemini endpoint configured in `index.html`.
+ - Each LLM request includes the following headers when a PAT/Project ID are set:
+	 - `Authorization: Bearer <PAT>`
+	 - `X-Project-Id: <PROJECT_ID>`
+ - Example JavaScript fetch used in the app:
+
+```js
+const headers = { 'Content-Type': 'application/json' };
+if (window.JAMAI_PAT) headers['Authorization'] = 'Bearer ' + window.JAMAI_PAT;
+if (window.JAMAI_PROJECT_ID) headers['X-Project-Id'] = window.JAMAI_PROJECT_ID;
+
+const resp = await fetch(window.JAMAI_API_URL || fallbackUrl, {
+	method: 'POST',
+	headers,
+	body: JSON.stringify(payload),
+});
+```
+
+3. Recommended (secure) setup for production
+ - Do NOT embed JamAI PAT in client-side code for production.
+ - Create a small server-side proxy (Node/Express, serverless function) that holds the PAT and forwards LLM requests. The client calls your proxy endpoint which adds Authorization header.
+ - This keeps your PAT secret and prevents abuse.
+
+Guest → Supabase migration flow
+
+- The app defaults to Guest Mode so the UI doesn't look odd for first-time users. Guest data is stored locally under the key `smartpps_profile_<guest-id>` where the guest id is persisted in `localStorage` as `smartpps_guest_id`.
+- When a user signs in with Supabase (magic link), the client detects local guest data and shows a migration banner offering to migrate the local profile into the authenticated Supabase account.
+- Clicking "Migrate to my account" will upsert the local guest profile into the `profiles` table for the authenticated `user.id` and then remove the local guest profile.
+
+Usage notes
+- You can control guest mode via the header checkbox. By default it is ON so new visitors get a smooth, anonymous experience.
+- If you want guest data preserved across sessions for testing, do not clear localStorage for this site — the app persists `smartpps_guest_id` and the profile under `smartpps_profile_<guest-id>`.
+- If you'd like, I can add a confirmation dialog to selectively pick what fields to migrate before upload.
+
+
 Local testing
  - Serve the folder and open `index.html` in the browser (simple static server suggested).
  - The app will initialize Supabase using the publishable key; to perform reads/writes protected by RLS you must sign in with the magic-link flow added to the header.
