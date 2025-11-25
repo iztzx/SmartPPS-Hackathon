@@ -55,7 +55,7 @@ def analyze_route():
 
         # 3. Poll for LLM Completion (RAG Analysis)
         attempts = 0
-        max_retries = 20  # <<< FIX: Increased polling attempts to 20 (30 seconds total wait)
+        max_retries = 39  # <<< FIX: Increased polling attempts to 20 (30 seconds total wait)
         final_row = None
 
         while attempts < max_retries:
