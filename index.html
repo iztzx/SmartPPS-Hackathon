@@ -619,33 +619,121 @@
     9) Registration: register at the PPS counter, obtain family token/QR, comply with volunteer instructions.
     10) Communication: keep phones charged, use designated family contact points, and do not re-enter flooded areas until declared safe.`;
         
-        document.getElementById("semantic-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const inputText = document.getElementById("semantic-input").value;
+// --- Feature 1 & 2: Semantic Decoding & Routing (with Serverless Backend) ---
 
-  const payload = {
-    location: userLocation,
-    familyData: window.familyData,
-    description: inputText
-  };
+document.getElementById("semantic-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const inputText = document.getElementById("semantic-input").value;
+    const button = document.getElementById('semantic-submit-button');
 
-  // Send to JamAI
-  const res = await fetch("/api/jamai/create", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input: payload })
-  });
+    // 1. Setup UI for Loading
+    button.disabled = true; button.classList.add('opacity-50'); button.textContent = '✨ Analyzing Situation & Status...';
+    
+    // Clear previous results
+    document.getElementById("analysis-display").textContent = "Analyzing...";
+    document.getElementById("best-match-display").textContent = "Searching for optimal PPS...";
+    document.getElementById("analysis-display").classList.remove("hidden");
+    document.getElementById("best-match-display").classList.remove("hidden");
+    document.getElementById("jamai-citation").classList.add("hidden");
 
-  const data = await res.json();
-  console.log("Row created:", data);
 
-  // Redirect to Intelligent Route tab
-  showTab("routing");
+    const payload = {
+        input: {
+            location: userLocation,
+            familyData: window.familyData,
+            description: inputText
+        }
+    };
 
-  // Fetch latest outcome
-  fetchRoutingOutcome();
+    // 2. Send to Serverless Backend (which handles JamAI LLM calls)
+    try {
+        const res = await fetch("/api/jamai/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        
+        if (data.jamai_status === "success" && data.output) {
+            const output = data.output;
+            
+            // 3. Update Family Data with Decoded Tags
+            const decodedTags = output.decoded_tags.split(',').map(t => t.trim()).filter(Boolean);
+            window.saveFamilyData({ vulnerabilities: decodedTags.length > 0 ? decodedTags : ['N/A Pax'] });
+            
+            // 4. Update UI with LLM Results
+            document.getElementById("current-vulnerabilities").innerHTML = `<span class="font-bold text-indigo-700">${(decodedTags.length > 0 ? decodedTags : ['N/A Pax']).join('; ')}</span>`;
+            
+            document.getElementById("analysis-display").textContent = output.analysis_text || "No detailed analysis provided.";
+            document.getElementById("best-match-display").innerHTML = `
+                <p class="text-2xl font-extrabold text-green-700">Best Match Found!</p>
+                <p class="text-4xl font-extrabold text-indigo-700 my-2">${output.selected_pps || 'Unknown PPS'}</p>
+                <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
+            `;
+            
+            document.getElementById("jamai-citation").classList.remove("hidden");
+        } else {
+             document.getElementById("analysis-display").textContent = data.message || "An unexpected error occurred in the JamAI call.";
+        }
+
+    } catch (error) {
+        console.error("Routing API Call Error:", error);
+        document.getElementById("analysis-display").textContent = `Error during routing calculation: ${error.message}.`;
+        document.getElementById("best-match-display").innerHTML = `<p class="text-lg font-bold text-red-600">Routing Failed</p>`;
+    } finally {
+        // 5. Cleanup UI and redirect to Intelligent Route tab
+        button.disabled = false; button.classList.remove('opacity-50'); button.textContent = '✨ Get Safe Route & Local Status';
+        showTab("routing");
+    }
 });
+
+
+// Note: The original fetchRoutingOutcome function is now obsolete as the POST returns the result immediately.
+// We keep a simplified version to fetch the *last* saved row if needed, but the main flow uses the POST response.
+
 async function fetchRoutingOutcome() {
+    // This is primarily for demonstrating GET capability or refreshing the UI,
+    // as the primary logic now uses the direct response from the /create POST.
+    const res = await fetch("/api/jamai/get");
+    const data = await res.json();
+
+    if (data.rows && data.rows.length > 0) {
+        const latest = data.rows[0]; // JamAI list API returns newest first due to order_by desc
+        const output = latest.columns || {};
+        
+        // Use the LLM completion columns if available
+        const decoded_tags_comp = output.decoded_tags?.choices?.[0]?.message?.content || "";
+        const analysis_comp = output.route_analysis?.choices?.[0]?.message?.content || "";
+
+        if (decoded_tags_comp) {
+            document.getElementById("current-vulnerabilities").innerHTML = `<span class="font-bold text-indigo-700">${decoded_tags_comp}</span>`;
+            window.saveFamilyData({ vulnerabilities: decoded_tags_comp.split(',').map(t => t.trim()).filter(Boolean) });
+        }
+
+        if (analysis_comp) {
+            const lines = analysis_comp.split('\n').map(l => l.trim()).filter(Boolean);
+            const bestLine = lines.reverse().find(l => l.toUpperCase().startsWith('BEST MATCH:'));
+            const analysisText = analysis_comp.replace(bestLine || "", "").trim();
+            const bestMatch = bestLine ? bestLine.replace(/BEST MATCH:/i, '').trim() : "Unknown PPS";
+            
+            document.getElementById("analysis-display").textContent = analysisText;
+            document.getElementById("best-match-display").innerHTML = `
+                <p class="text-2xl font-extrabold text-green-700">Best Match Found! (from JamAI Table)</p>
+                <p class="text-4xl font-extrabold text-indigo-700 my-2">${bestMatch}</p>
+                <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
+            `;
+            document.getElementById("jamai-citation").classList.remove("hidden");
+        }
+    }
+}
+
+// Re-map the existing `saveRoutingToJamAI` button logic to call the new GET function for demo
+async function saveRoutingToJamAI() {
+    document.getElementById("save-routing-status").textContent = "Fetching latest successful routing from JamAI...";
+    await fetchRoutingOutcome();
+    document.getElementById("save-routing-status").textContent = "Latest routing refreshed from JamAI table.";
+}
   const res = await fetch("/api/jamai/get");
   const data = await res.json();
 
@@ -668,32 +756,8 @@ async function fetchRoutingOutcome() {
 
     document.getElementById("jamai-citation").classList.remove("hidden");
   }
-}
 
-async function fetchRoutingOutcome() {
-  const res = await fetch("/api/jamai/get");
-  const data = await res.json();
 
-  if (data.rows && data.rows.length > 0) {
-    const latest = data.rows[data.rows.length - 1]; // last row
-
-    // Show decoded needs
-    document.getElementById("current-vulnerabilities").textContent =
-      latest.output?.decoded_tags || "No decoded tags";
-
-    // Show analysis
-    document.getElementById("analysis-display").classList.remove("hidden");
-    document.getElementById("analysis-display").textContent =
-      latest.output?.analysis_text || "No analysis";
-
-    // Show selected PPS
-    document.getElementById("best-match-display").classList.remove("hidden");
-    document.getElementById("best-match-display").textContent =
-      latest.output?.selected_pps || "No PPS selected";
-
-    document.getElementById("jamai-citation").classList.remove("hidden");
-  }
-}
 
         async function findOptimalPPS(semanticInput) {
             
