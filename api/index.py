@@ -15,6 +15,7 @@ API_KEY = os.getenv("JAMAI_PAT")
 TABLE_ID = os.getenv("ACTION_TABLE_ID")
 
 # Initialize JamAI Client
+# FIX: Arguments updated to use 'token' and exclude 'base_url'
 jamai = JamAI(
     project_id=PROJECT_ID, 
     token=API_KEY, 
@@ -31,7 +32,6 @@ def analyze_route():
             return jsonify({"error": "User input is required"}), 400
 
         # 2. Add Row to JamAI Action Table
-        # We insert the inputs. The LLM columns (decoded_tags, route_analysis) are generated automatically.
         row_data = {
             "action": "find_safe_shelter",
             "user_input": user_input,
@@ -41,7 +41,8 @@ def analyze_route():
 
         # Using the SDK to add the row
         completion = jamai.table.add_table_rows(
-            table_type=p.TableType.action,
+            # FIX: Changed to correct uppercase constant
+            table_type=p.TableType.ACTION,
             table_id=TABLE_ID,
             rows=[row_data],
             stream=False
@@ -53,8 +54,6 @@ def analyze_route():
         row_id = completion.rows[0].row_id
 
         # 3. Poll for LLM Completion (RAG Analysis)
-        # Since Gen Tables are asynchronous, we wait briefly for the 'route_analysis' to populate.
-        # In a production app, you might use WebSockets or client-side polling.
         attempts = 0
         max_retries = 10
         final_row = None
@@ -62,13 +61,13 @@ def analyze_route():
         while attempts < max_retries:
             # Fetch the specific row to check if LLM has finished
             row_response = jamai.table.get_table_row(
-                table_type=p.TableType.action,
+                # FIX: Changed to correct uppercase constant
+                table_type=p.TableType.ACTION,
                 table_id=TABLE_ID,
                 row_id=row_id
             )
             
             # Check if the LLM output column is not null/empty
-            # Note: Adjust 'route_analysis' key if your column ID differs slightly
             if row_response.row and row_response.row.get("route_analysis"):
                 final_row = row_response.row
                 break
