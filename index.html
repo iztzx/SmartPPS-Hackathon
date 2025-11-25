@@ -619,20 +619,81 @@
     9) Registration: register at the PPS counter, obtain family token/QR, comply with volunteer instructions.
     10) Communication: keep phones charged, use designated family contact points, and do not re-enter flooded areas until declared safe.`;
         
-        document.getElementById('semantic-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            if (userLocation.source !== 'GPS' && userLocation.source !== 'IP Fallback' && userLocation.source !== 'Manual') {
-                alert("Please confirm your location in Step 1 before routing.");
-                return;
-            }
-            
-            const semanticInput = document.getElementById('semantic-input').value.trim();
-            if (semanticInput) {
-                await findOptimalPPS(semanticInput);
-                showTab('routing'); // Automatically switch to Routing tab
-            }
-        });
+        document.getElementById("semantic-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const inputText = document.getElementById("semantic-input").value;
+
+  const payload = {
+    location: userLocation,
+    familyData: window.familyData,
+    description: inputText
+  };
+
+  // Send to JamAI
+  const res = await fetch("/api/jamai/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input: payload })
+  });
+
+  const data = await res.json();
+  console.log("Row created:", data);
+
+  // Redirect to Intelligent Route tab
+  showTab("routing");
+
+  // Fetch latest outcome
+  fetchRoutingOutcome();
+});
+async function fetchRoutingOutcome() {
+  const res = await fetch("/api/jamai/get");
+  const data = await res.json();
+
+  if (data.rows && data.rows.length > 0) {
+    const latest = data.rows[data.rows.length - 1]; // last row
+
+    // Show decoded needs
+    document.getElementById("current-vulnerabilities").textContent =
+      latest.output?.decoded_tags || "No decoded tags";
+
+    // Show analysis
+    document.getElementById("analysis-display").classList.remove("hidden");
+    document.getElementById("analysis-display").textContent =
+      latest.output?.analysis_text || "No analysis";
+
+    // Show selected PPS
+    document.getElementById("best-match-display").classList.remove("hidden");
+    document.getElementById("best-match-display").textContent =
+      latest.output?.selected_pps || "No PPS selected";
+
+    document.getElementById("jamai-citation").classList.remove("hidden");
+  }
+}
+
+async function fetchRoutingOutcome() {
+  const res = await fetch("/api/jamai/get");
+  const data = await res.json();
+
+  if (data.rows && data.rows.length > 0) {
+    const latest = data.rows[data.rows.length - 1]; // last row
+
+    // Show decoded needs
+    document.getElementById("current-vulnerabilities").textContent =
+      latest.output?.decoded_tags || "No decoded tags";
+
+    // Show analysis
+    document.getElementById("analysis-display").classList.remove("hidden");
+    document.getElementById("analysis-display").textContent =
+      latest.output?.analysis_text || "No analysis";
+
+    // Show selected PPS
+    document.getElementById("best-match-display").classList.remove("hidden");
+    document.getElementById("best-match-display").textContent =
+      latest.output?.selected_pps || "No PPS selected";
+
+    document.getElementById("jamai-citation").classList.remove("hidden");
+  }
+}
 
         async function findOptimalPPS(semanticInput) {
             
