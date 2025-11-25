@@ -31,31 +31,32 @@ def analyze_route():
         # MODE 2: FETCH STATUS (The polling request from the client)
         # =========================================================
         if row_id_to_fetch:
-            # Check the table for the existing job
+            # FIX 1: Get the row using positional arguments
             row_response = jamai.table.get_table_row(
                 p.TableType.ACTION,
                 TABLE_ID,
                 row_id_to_fetch
             )
             
-            # Check for the row existence and the required non-empty analysis columns
-            if row_response.get("row") and 'route_analysis' in row_response["row"]:
+            # Extract the nested 'row' dictionary safely
+            final_row = row_response.get("row")
+
+            if final_row:
                 
-                final_row = row_response["row"]
-                
-                # Check for the *actual content* of the required analysis fields
-                if final_row.get("route_analysis") and final_row.get("selected_pps"):
+                # FIX 2: Check for completion by looking for non-empty content in the inner ["value"] key
+                if (final_row.get("route_analysis", {}).get("value") and 
+                    final_row.get("selected_pps", {}).get("value")):
                     
-                    # Return final results immediately
+                    # FIX 3: Extract the final output using the ["value"] key
                     return jsonify({
                         "success": True,
                         "status": "complete",
-                        "analysis": final_row.get("route_analysis"),
-                        "tags": final_row.get("decoded_tags"),
-                        "selected_pps": final_row.get("selected_pps")
+                        "analysis": final_row["route_analysis"]["value"], 
+                        "tags": final_row.get("decoded_tags", {}).get("value"),
+                        "selected_pps": final_row["selected_pps"]["value"]
                     }), 200
             
-            # If the analysis is not complete (or empty content)
+            # If the row is not yet available or analysis is still running
             return jsonify({
                 "success": False, 
                 "status": "pending", 
