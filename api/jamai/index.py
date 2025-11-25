@@ -1,121 +1,98 @@
-from http.server import BaseHTTPRequestHandler
-import json
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import os
-import urllib.request
-import urllib.error
+import time
+from typing import Optional
+from jamaibase import JamAI, protocol as p
 
-# --- CONFIGURATION ---
-JAMAI_API_BASE = "https://api.jamaibase.com/api"
-JAMAI_PROJECT_ID = os.environ.get("JAMAI_PROJECT_ID", "")
-JAMAI_PAT = os.environ.get("JAMAI_PAT", "")
-JAMAI_TABLE_ID = os.environ.get("JAMAI_TABLE_ID", "emergency_routing")
+app = FastAPI()
 
-class handler(BaseHTTPRequestHandler):
-    
-    def _set_headers(self, status=200):
-        self.send_response(status)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
+# Allow CORS for frontend interaction
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    def do_OPTIONS(self):
-        self._set_headers()
+# -- Configuration --
+# Ensure these are set in your Vercel Environment Variables
+PROJECT_ID = os.environ.get("JAMAI_PROJECT_ID")
+API_URL = os.environ.get("JAMAI_API_URL")
+API_KEY = os.environ.get("JAMAI_PAT")
+TABLE_ID = "emergency_routing"  # Matching your CSV filename/table name
 
-    def do_POST(self):
-        try:
-            # 1. Parse Frontend Input
-            content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length)
-            data = json.loads(body.decode('utf-8'))
-            
-            user_input_data = data.get('input', {})
-            description = user_input_data.get('description', '')
-            location = user_input_data.get('location', {})
-            
-            location_str = f"{location.get('city', 'Unknown')}, {location.get('region', 'Malaysia')}"
+# Initialize JamAI Client
+jamai = JamAI(project_id=PROJECT_ID, api_key=API_KEY, api_url=API_URL)
 
-            # 2. Build Payload for JamAI Action Table API
-            # Docs: https://jamaibase.readme.io/reference/add_rows_api_v2_gen_tables__table_type__rows_add_post
-            payload = {
-                "table_id": JAMAI_TABLE_ID,
-                "data": [{
-                    "user_input": description,
-                    "location_details": location_str
+class RouteRequest(BaseModel):
+    user_input: str
+    location_details: str
+
+@app.post("/api/find_safe_shelter")
+def find_safe_shelter(request: RouteRequest):
+    try:
+        # 1. Add the user input to the JamAI Action Table
+        # We send the input and let the LLM columns (decoded_tags, route_analysis) generate.
+        row_add_response = jamai.table.add_table_rows(
+            "action",
+            p.RowAddRequest(
+                table_id=TABLE_ID,
+                data=[{
+                    "user_input": request.user_input,
+                    "location_details": request.location_details,
+                    "action": "analyze_vulnerability" # Explicit action trigger if needed
                 }],
-                "stream": False,
-                "concurrent": True
-            }
+                stream=False
+            )
+        )
 
-            # 3. Send Request using standard urllib (No heavy SDK)
-            url = f"{JAMAI_API_BASE}/v1/gen_tables/action/rows/add"
-            headers = {
-                'Authorization': f'Bearer {JAMAI_PAT}',
-                'X-PROJECT-ID': JAMAI_PROJECT_ID,
-                'Content-Type': 'application/json'
-            }
+        if not row_add_response.rows:
+            raise HTTPException(status_code=500, detail="Failed to add row to JamAI table.")
 
-            req = urllib.request.Request(
-                url, 
-                data=json.dumps(payload).encode('utf-8'), 
-                headers=headers, 
-                method='POST'
+        row_id = row_add_response.rows[0].row_id
+
+        # 2. Poll for the result (Wait for LLM "route_analysis" to complete)
+        # Since RAG/LLM generation takes a few seconds, we poll the specific row.
+        max_retries = 10
+        for _ in range(max_retries):
+            row_response = jamai.table.get_table_rows(
+                "action",
+                p.RowListRequest(
+                    table_id=TABLE_ID,
+                    row_ids=[row_id]
+                )
             )
             
-            with urllib.request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode('utf-8'))
+            if row_response.items:
+                row_data = row_response.items[0]
+                # Check if the output column is populated and not empty
+                analysis = row_data.get("route_analysis")
+                if analysis and isinstance(analysis, dict):
+                    # If it's a structured object, extract text (value)
+                    analysis_text = analysis.get("value", "")
+                    if analysis_text:
+                        return {
+                            "status": "success",
+                            "tags": row_data.get("decoded_tags", {}).get("value", ""),
+                            "analysis": analysis_text
+                        }
+                elif analysis and isinstance(analysis, str) and analysis.strip():
+                     return {
+                            "status": "success",
+                            "tags": row_data.get("decoded_tags", ""),
+                            "analysis": analysis
+                        }
 
-            # 4. Process Response
-            # The API returns the added rows with their generated columns
-            if 'rows' in result and len(result['rows']) > 0:
-                row_columns = result['rows'][0]['columns']
-                
-                # Helper to extract value safely
-                def get_val(col_name):
-                    col = row_columns.get(col_name)
-                    # Handle different response shapes (sometimes 'text', sometimes 'value')
-                    if not col: return "N/A"
-                    if isinstance(col, dict): return col.get('text') or col.get('value') or "N/A"
-                    return str(col)
+            time.sleep(2) # Wait 2 seconds before retrying
 
-                decoded_tags = get_val("decoded_tags")
-                analysis_text = get_val("route_analysis")
-                
-                # Extract PPS logic
-                selected_pps = "Check Analysis"
-                if "BEST MATCH:" in analysis_text:
-                    try:
-                        selected_pps = analysis_text.split("BEST MATCH:")[1].split("\n")[0].strip("* ")
-                    except:
-                        pass
+        return {"status": "processing", "message": "Analysis is taking longer than expected. Please check back later."}
 
-                response_payload = {
-                    "jamai_status": "success",
-                    "output": {
-                        "decoded_tags": decoded_tags,
-                        "analysis_text": analysis_text,
-                        "selected_pps": selected_pps
-                    }
-                }
-            else:
-                response_payload = {
-                    "jamai_status": "success",
-                    "output": {
-                        "decoded_tags": "Processing...",
-                        "analysis_text": "Request queued.",
-                        "selected_pps": "Wait"
-                    }
-                }
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-            self._set_headers(200)
-            self.wfile.write(json.dumps(response_payload).encode('utf-8'))
-
-        except Exception as e:
-            # Error Handling
-            self._set_headers(500)
-            self.wfile.write(json.dumps({
-                "error": True, 
-                "message": f"Server Error: {str(e)}",
-                "jamai_status": "error"
-            }).encode('utf-8'))
+# Vercel requires the app to be exposed
+# If running locally: uvicorn api.index:app --reload
