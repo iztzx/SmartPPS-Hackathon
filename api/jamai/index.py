@@ -114,13 +114,13 @@ SOP: {SOP_KNOWLEDGE}
             "completion_columns": {
                 # Column 1: Semantic Decoding
                 "decoded_tags": {
-                    "model": "gemini-2.5-flash",
+                    "model": "",
                     "prompt": description,
                     "system_instruction": system_prompt_decode,
                 },
                 # Column 2: Intelligent Routing (Chain of two LLM steps)
                 "route_analysis": {
-                    "model": "gemini-2.5-flash",
+                    "model": "",
                     "prompt": routing_query,
                     "system_instruction": system_prompt_route,
                     "prompt_dependencies": {

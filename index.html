@@ -7,11 +7,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <style>
-        /* Import Inter font (Tailwind default) - kept for explicit confirmation */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f0f4f8; }
         
-        /* Custom Styles for Tabs and Cards */
         .tab-button { 
             padding: 0.75rem 0.5rem; 
             text-align: center; 
@@ -19,7 +17,7 @@
             font-weight: 600; 
             border-bottom: 3px solid transparent; 
             transition: all 0.2s;
-            touch-action: manipulation; /* Improves touch responsiveness */
+            touch-action: manipulation;
         }
         .tab-button.active { 
             border-color: #4f46e5; 
@@ -35,9 +33,8 @@
         .pulse-animation { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
         @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 
-        /* Chat styles for clear user/ai distinction */
         .chat-window .user-message { 
-            background-color: #3b82f6; /* Blue-600 */
+            background-color: #3b82f6;
             color: white; 
             padding: 0.75rem; 
             border-radius: 0.75rem 0.75rem 0 0.75rem; 
@@ -60,16 +57,16 @@
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
-    <script src="config.js"></script>
     <script>
-        // --- FORCING GUEST MODE ---
-        // Critical: Ensure no Supabase code runs and use local storage exclusively.
+        // Guest Mode Configuration
         window.isGuest = true;
         const GUEST_ID_KEY = 'smartpps_guest_id';
-        if (!localStorage.getItem(GUEST_ID_KEY)) localStorage.setItem(GUEST_ID_KEY, 'guest-' + crypto.randomUUID());
+        if (!localStorage.getItem(GUEST_ID_KEY)) {
+            localStorage.setItem(GUEST_ID_KEY, 'guest-' + crypto.randomUUID());
+        }
         window.userId = localStorage.getItem(GUEST_ID_KEY);
 
-        // Simple storage helper functions 
+        // Simple localStorage helper functions 
         window.saveFamilyData = async (data) => {
             try {
                 const key = `smartpps_profile_${window.userId}`;
@@ -80,7 +77,10 @@
                 window.familyData = merged;
                 if (window.updateUIAfterDataLoad) window.updateUIAfterDataLoad(merged);
                 return true;
-            } catch (e) { console.error('saveFamilyData error', e); return false; }
+            } catch (e) { 
+                console.error('saveFamilyData error', e); 
+                return false; 
+            }
         };
 
         window.loadFamilyData = async () => {
@@ -94,25 +94,28 @@
                 }
                 window.familyData = {};
                 return window.familyData;
-            } catch (e) { console.error('loadFamilyData error', e); window.familyData = {}; return window.familyData; }
+            } catch (e) { 
+                console.error('loadFamilyData error', e); 
+                window.familyData = {}; 
+                return window.familyData; 
+            }
         };
     </script>
 
+    <!-- Header -->
     <header class="bg-indigo-700 text-white p-4 shadow-xl">
         <h1 class="text-2xl font-extrabold tracking-tight">SafeRoute: Disaster Hub</h1>
         <p id="user-id-display" class="text-xs opacity-70 mt-1">Guest ID: <span id="uid-span"></span></p>
     </header>
 
+    <!-- Guest Mode Banner -->
     <div id="guest-info" class="p-3 bg-yellow-50 border-b border-yellow-400">
-        <div class="max-w-4xl mx-auto text-sm text-yellow-800 font-medium text-center md:text-left">
+        <div class="max-w-4xl mx-auto text-sm text-yellow-800 font-medium text-center">
             ⚠️ **Guest Mode:** All data is saved locally in your browser.
-        </div>
-        <div class="max-w-4xl mx-auto text-sm text-yellow-800 font-medium text-center md:text-right mt-2">
-            <button id="upload-sop-button" class="ml-2 inline-flex items-center px-3 py-1.5 border border-transparent text-xs leading-4 font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700" onclick="alert('SOP Upload is a backend-only feature for this simplified demo.')" disabled>Upload SOP (Demo)</button>
-            <span id="upload-sop-status" class="ml-3 text-xs font-medium text-gray-700"></span>
         </div>
     </div>
     
+    <!-- Tab Navigation -->
     <nav class="bg-white shadow-lg sticky top-0 z-10">
         <div class="grid grid-cols-2 md:grid-cols-4 border-b border-gray-200">
             <button class="tab-button active" onclick="showTab('situation')" id="tab-situation">1. Situation</button>
@@ -122,8 +125,10 @@
         </div>
     </nav>
 
+    <!-- Main Content Area -->
     <main class="flex-1 p-4 overflow-y-auto max-w-4xl mx-auto">
 
+        <!-- Tab 1: Your Situation -->
         <section id="situation" class="tab-content space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">1. Situation & Needs Assessment</h2>
             
@@ -131,12 +136,14 @@
                 **Phase 1:** Confirm your location and clearly describe your family's needs for safe routing.
             </p>
             
+            <!-- Location Confirmation -->
             <div class="card p-5">
                 <h3 class="text-xl font-extrabold text-indigo-700 mb-3 flex items-center gap-2">📍 Confirm Location</h3>
                 
                 <div id="location-status-container">
-                    <p id="current-location-display" class="text-base text-gray-700 font-semibold pulse-animation mb-4"></p>
+                    <p id="current-location-display" class="text-base text-gray-700 font-semibold mb-4">🔍 Detecting location...</p>
                     
+                    <!-- Manual Input Form -->
                     <form id="manual-location-form" class="mt-4 border-t pt-4 hidden space-y-3">
                         <p class="text-sm font-bold text-red-600">❌ Auto-detection failed. Enter your location manually.</p>
                         <input type="text" id="manual-city-input" required placeholder="Enter City/Suburb (e.g., Segamat, Johor)" class="w-full rounded-lg border-gray-300 shadow-sm p-3 border">
@@ -145,6 +152,7 @@
                 </div>
             </div>
 
+            <!-- Semantic Intent Input -->
             <div class="card p-5">
                 <h3 class="text-xl font-extrabold text-gray-800 mb-3">Describe Needs (Semantic Input)</h3>
                 <p class="text-sm text-gray-600 mb-4">Input your family's situation to decode specific needs (vulnerabilities).</p>
@@ -160,16 +168,11 @@
             </div>
         </section>
 
+        <!-- Tab 2: Intelligent Routing -->
         <section id="routing" class="tab-content hidden space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">2. Intelligent Routing Analysis</h2>
             
-            <div id="local-status-results-routing" class="card p-5 border-l-4 transition duration-300">
-                <h3 class="text-xl font-extrabold text-red-700 mb-3 flex items-center">🚨 Real-Time Status & Weather</h3>
-                <div id="status-content">
-                    <p class="text-sm text-gray-500">Awaiting status check from JamAI Base...</p>
-                </div>
-            </div>
-
+            <!-- Decoded Input -->
             <div class="card p-5">
                 <p class="text-lg font-extrabold text-indigo-700 mb-2">AI Decoded Needs:</p>
                 <div id="current-vulnerabilities" class="text-gray-500 italic text-base mb-4">
@@ -180,33 +183,30 @@
                 </p>
             </div>
 
+            <!-- Results Section -->
             <div id="routing-results" class="space-y-4">
                 <div id="analysis-display" class="card p-5 bg-white border-2 border-indigo-400 hidden">
-                    </div>
+                    <!-- Analysis Text will be inserted here -->
+                </div>
 
                 <div id="best-match-display" class="card p-5 text-center hidden bg-green-50 border-2 border-green-400">
-                    </div>
-
-                <div class="flex justify-end">
-                    <button id="save-routing-button" class="py-2 px-3 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-700" onclick="fetchRoutingOutcome()">
-                        Refresh Latest Route from JamAI
-                    </button>
-                    <span id="save-routing-status" class="ml-3 text-xs text-gray-600"></span>
+                    <!-- Selected PPS will be inserted here -->
                 </div>
 
                 <p id="jamai-citation" class="text-xs text-gray-500 pt-4 border-t hidden">
                     AI Reasoning provided by JamAI Base (with PPS Knowledge RAG).
                 </p>
             </div>
-
         </section>
 
+        <!-- Tab 3: QR Passport -->
         <section id="qr-passport" class="tab-content hidden space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">3. JKM Passport Creation</h2>
             <p class="text-base text-gray-600">Complete the details below to generate your **Zero-Typing QR Passport** for rapid registration.</p>
 
             <div id="save-status" class="p-3 text-sm rounded-lg font-medium hidden"></div>
 
+            <!-- JKM Passport Form -->
             <form id="family-form" class="space-y-4 card p-5">
                 <label class="block text-sm font-semibold text-gray-700">Head of Family Name</label>
                 <input type="text" id="headName" required class="mt-1 block w-full rounded-lg p-3 border">
@@ -230,29 +230,21 @@
                 </button>
             </form>
 
+            <!-- QR Code Output -->
             <div id="qr-container" class="flex flex-col items-center justify-center card p-6 space-y-4">
                 <div id="qrcode-display" class="p-4 border-4 border-indigo-600 rounded-xl bg-white shadow-2xl">
                     <canvas id="qr-canvas" class="w-64 h-64 md:w-80 md:h-80"></canvas>
                 </div>
                 <p id="qr-status" class="text-center text-red-500 font-bold">No family data saved yet.</p>
-                <div class="flex flex-col md:flex-row gap-2 w-full justify-center">
-                    <button id="copy-payload-button" class="py-2 px-4 border rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 transition hidden" onclick="copyJKMPayload()">
-                        Copy JKM Payload (Raw Text)
-                    </button>
-                    <button id="email-pkpass-button" class="py-2 px-4 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition hidden" disabled>
-                        ✉️ Email Wallet Pass (.pkpass)
-                    </button>
-                </div>
-                <p id="pkpass-status" class="text-xs text-gray-500 mt-2 text-center">
-                    (Save details first to enable Wallet export)
-                </p>
             </div>
+            
             <div class="mt-6 text-sm p-4 bg-gray-100 rounded-lg border border-gray-300">
                 <p class="font-semibold text-gray-700">JKM Schema Preview (Raw Payload):</p>
                 <code id="jkm-payload-preview" class="block whitespace-pre-wrap break-words text-gray-600 mt-2 text-xs font-mono">Awaiting data...</code>
             </div>
         </section>
         
+        <!-- Tab 4: Rumour Killer -->
         <section id="rumour-killer" class="tab-content hidden space-y-4">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">4. Rumour Killer (Grounded Q&A)</h2>
             <p class="text-base text-gray-600">Verify information and get official safety guidance using real-time search.</p>
@@ -272,27 +264,24 @@
         </section>
     </main>
 
+    <!-- JavaScript Logic -->
     <script>
-        // JamAI Base Configuration (loaded from config.js)
-        const JAMAI_PAT = window.JAMAI_PAT || "";
-        const JAMAI_PROJECT_ID = window.JAMAI_PROJECT_ID || "";
-        const JAMAI_API_URL = window.JAMAI_API_URL || "https://api.jamaibase.com/v1/projects"; // Default if config.js is not set.
-
-        // API setup
+        // API Configuration
         const IP2LOCATION_KEY = "D2D17B84A589ED1060A87E4DD69AC1A9";
-        const IP2LOCATION_URL_BASE = `https://api.ip2location.io/?key=${IP2LOCATION_KEY}`;
+        const IP2LOCATION_URL = `https://api.ip2location.io/?key=${IP2LOCATION_KEY}`;
         
-        // This is a placeholder for a hypothetical LLM API call if JamAI wasn't used.
-        // For this demo, all LLM calls are proxied through the serverless function.
-        const LLM_API_URL = JAMAI_API_URL; // Using JAMAI_API_URL only as a base reference
-
         let familyData = window.familyData || {};
-        let userLocation = { city: 'Unknown City', region: 'Malaysia', lat: 3.140853, lon: 101.693240, source: 'Default' };
+        let userLocation = { 
+            city: 'Unknown City', 
+            region: 'Malaysia', 
+            lat: 3.140853, 
+            lon: 101.693240, 
+            source: 'Default' 
+        };
         
-        document.getElementById('uid-span').textContent = window.userId.substring(0, 8); // Abbreviated ID for aesthetics
+        document.getElementById('uid-span').textContent = window.userId.substring(0, 8);
 
-
-        // --- Location Functions (Repaired) ---
+        // --- Location Functions (FIXED) ---
         function updateLocationUI() {
             const display = document.getElementById('current-location-display');
             const manualForm = document.getElementById('manual-location-form');
@@ -304,97 +293,76 @@
                 statusText = `✅ <b>GPS Detected:</b> ${userLocation.city}, ${userLocation.region} (${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)})`;
                 manualForm.classList.add('hidden');
                 display.classList.remove('pulse-animation');
-            } else if (userLocation.source === 'IP Fallback') {
-                statusText = `⚠️ <b>IP Detected (Fallback):</b> ${userLocation.city}, ${userLocation.region} (${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)})`;
+            } else if (userLocation.source === 'IP') {
+                statusText = `⚠️ <b>IP Detected:</b> ${userLocation.city}, ${userLocation.region} (${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)})`;
                 manualForm.classList.add('hidden');
                 display.classList.remove('pulse-animation');
             } else if (userLocation.source === 'Manual') {
                 statusText = `📍 <b>Manual Location:</b> ${userLocation.city}, ${userLocation.region}`;
                 manualForm.classList.add('hidden');
                 display.classList.remove('pulse-animation');
-            } else { // Manual Input Required
-                statusText = `❌ <b>Location Required:</b> Automatic detection failed. Please confirm below.`;
+            } else {
+                statusText = `❌ <b>Location Required:</b> Please enter manually below.`;
                 manualForm.classList.remove('hidden');
-                display.classList.add('pulse-animation');
             }
 
             display.innerHTML = statusText;
-            routingCoords.textContent = `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)} (Source: ${userLocation.source})`;
-        }
-
-        async function getGPSLocation() {
-            return new Promise((resolve, reject) => {
-                if (!navigator.geolocation) return reject("Geolocation not supported.");
-                // Increased timeout for a better chance of success
-                const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }; 
-
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        userLocation.lat = position.coords.latitude;
-                        userLocation.lon = position.coords.longitude;
-                        userLocation.city = 'Your GPS Area';
-                        userLocation.region = 'GPS Detected';
-                        userLocation.source = 'GPS';
-                        resolve(true);
-                    },
-                    (error) => {
-                        console.warn('Geolocation Error:', error.code, error.message);
-                        reject(error);
-                    }, options
-                );
-            });
-        }
-        
-        async function getIPLocation() {
-            try {
-                const response = await fetch(IP2LOCATION_URL_BASE);
-                const data = await response.json();
-                if (response.ok && data.latitude && data.longitude && data.country_code === 'MY') {
-                    userLocation.lat = parseFloat(data.latitude);
-                    userLocation.lon = parseFloat(data.longitude);
-                    userLocation.city = data.city_name || 'Unknown City';
-                    userLocation.region = data.region_name || 'Unknown Region';
-                    userLocation.source = 'IP Fallback';
-                    return true;
-                }
-            } catch (e) { console.warn("IP2Location API call failed.", e); }
-            return false;
+            if (routingCoords) {
+                routingCoords.textContent = `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)} (Source: ${userLocation.source})`;
+            }
         }
 
         async function getUserLocation() {
             const display = document.getElementById('current-location-display');
-            display.classList.add('pulse-animation');
-            display.innerHTML = 'Detecting location...';
+            display.innerHTML = '🔍 Detecting location via GPS...';
 
-            let locationFound = false;
-
-            // 1. Try GPS first
+            // Try GPS first
             try {
-                await getGPSLocation();
-                locationFound = true;
-            } catch (e) {
-                console.warn('GPS failed, falling back to IP...');
+                const position = await new Promise((resolve, reject) => {
+                    if (!navigator.geolocation) {
+                        reject(new Error('Geolocation not supported'));
+                        return;
+                    }
+                    
+                    navigator.geolocation.getCurrentPosition(
+                        resolve,
+                        reject,
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    );
+                });
+
+                userLocation.lat = position.coords.latitude;
+                userLocation.lon = position.coords.longitude;
+                userLocation.city = 'GPS Location';
+                userLocation.region = 'Detected';
+                userLocation.source = 'GPS';
+                updateLocationUI();
+                return;
+            } catch (gpsError) {
+                console.warn('GPS failed:', gpsError.message);
+                display.innerHTML = '🔍 GPS unavailable, trying IP location...';
             }
 
-            // 2. Try IP if GPS failed
-            if (!locationFound) {
-                try {
-                    await getIPLocation();
-                    locationFound = true;
-                } catch (e) {
-                    console.warn('IP fallback failed. Manual input required.');
+            // Fallback to IP location
+            try {
+                const response = await fetch(IP2LOCATION_URL);
+                const data = await response.json();
+                
+                if (data.latitude && data.longitude) {
+                    userLocation.lat = parseFloat(data.latitude);
+                    userLocation.lon = parseFloat(data.longitude);
+                    userLocation.city = data.city_name || 'Unknown City';
+                    userLocation.region = data.region_name || 'Unknown Region';
+                    userLocation.source = 'IP';
+                    updateLocationUI();
+                    return;
                 }
+            } catch (ipError) {
+                console.warn('IP location failed:', ipError.message);
             }
 
-            // 3. Set to manual input if both failed
-            if (!locationFound) {
-                userLocation.source = 'Manual Input Required';
-                userLocation.city = 'N/A';
-                userLocation.region = 'N/A';
-                userLocation.lat = 0;
-                userLocation.lon = 0;
-            }
-
+            // If both fail, show manual input
+            userLocation.source = 'Manual Required';
             updateLocationUI();
         }
 
@@ -405,36 +373,80 @@
                 userLocation.city = cityInput;
                 userLocation.region = 'Manual Input';
                 userLocation.source = 'Manual';
-                // Use a sensible default Malaysian coordinate if no lat/lon was set
-                if (userLocation.lat === 0 && userLocation.lon === 0) {
-                    userLocation.lat = 3.140853; 
-                    userLocation.lon = 101.693240;
-                }
                 updateLocationUI();
             }
         });
 
+        // --- Semantic Form Submission ---
+        document.getElementById("semantic-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const inputText = document.getElementById("semantic-input").value;
+            const button = document.getElementById('semantic-submit-button');
 
-        // --- Utility Helpers (Simplified) ---
-        function togglePkpassButton(data) {
-            const btn = document.getElementById('email-pkpass-button');
-            const statusEl = document.getElementById('pkpass-status');
+            button.disabled = true;
+            button.classList.add('opacity-50');
+            button.textContent = '✨ Analyzing Situation...';
             
-            const isReady = data && data.jkmPayload && data.headName && data.icNumber && data.familySize > 0;
-            
-            if (isReady) {
-                btn.disabled = false;
-                btn.classList.remove('hidden');
-                statusEl.textContent = 'Ready to send JKM Passport to your email for Wallet.';
-            } else {
-                btn.disabled = true;
-                btn.classList.add('hidden');
-                statusEl.textContent = '(Save details and ensure Name, IC, and Size are filled to enable Wallet export)';
+            document.getElementById("analysis-display").textContent = "Analyzing...";
+            document.getElementById("best-match-display").textContent = "Searching for optimal PPS...";
+            document.getElementById("analysis-display").classList.remove("hidden");
+            document.getElementById("best-match-display").classList.remove("hidden");
+            document.getElementById("jamai-citation").classList.add("hidden");
+
+            const payload = {
+                input: {
+                    location: userLocation,
+                    familyData: window.familyData,
+                    description: inputText
+                }
+            };
+
+            try {
+                const res = await fetch("/api/jamai/create", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                
+                if (data.jamai_status === "success" && data.output) {
+                    const output = data.output;
+                    
+                    // Update decoded tags
+                    const decodedTags = output.decoded_tags.split(',').map(t => t.trim()).filter(Boolean);
+                    window.saveFamilyData({ vulnerabilities: decodedTags.length > 0 ? decodedTags : ['N/A Pax'] });
+                    
+                    // Update UI
+                    document.getElementById("current-vulnerabilities").innerHTML = 
+                        `<span class="font-bold text-indigo-700">${(decodedTags.length > 0 ? decodedTags : ['N/A Pax']).join('; ')}</span>`;
+                    
+                    document.getElementById("analysis-display").textContent = output.analysis_text || "No detailed analysis provided.";
+                    document.getElementById("best-match-display").innerHTML = `
+                        <p class="text-2xl font-extrabold text-green-700">Best Match Found!</p>
+                        <p class="text-4xl font-extrabold text-indigo-700 my-2">${output.selected_pps || 'Unknown PPS'}</p>
+                        <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
+                    `;
+                    
+                    document.getElementById("jamai-citation").classList.remove("hidden");
+                } else {
+                    document.getElementById("analysis-display").textContent = data.message || "An unexpected error occurred.";
+                }
+
+            } catch (error) {
+                console.error("Routing API Call Error:", error);
+                document.getElementById("analysis-display").textContent = `Error: ${error.message}`;
+                document.getElementById("best-match-display").innerHTML = 
+                    `<p class="text-lg font-bold text-red-600">Routing Failed</p>`;
+            } finally {
+                button.disabled = false;
+                button.classList.remove('opacity-50');
+                button.textContent = '✨ Get Safe Route & Local Status';
+                showTab("routing");
             }
-        }
+        });
 
-        // --- Data & UI Update Handlers ---
-
+        // --- QR Passport Generation ---
         window.updateUIAfterDataLoad = (data) => {
             window.familyData = data;
             const form = document.getElementById('family-form');
@@ -448,176 +460,13 @@
                 
                 const vulns = data.vulnerabilities?.join('; ') || 'None saved.';
                 vulnerabilitiesDisplay.textContent = vulns;
-
             } else {
                 form.reset();
                 vulnerabilitiesDisplay.textContent = 'None saved.';
             }
 
             updateQRCode(data);
-            updateRoutingTab(data);
-            togglePkpassButton(data);
         };
-        
-        function updateRoutingTab(data) {
-            const currentVulnerabilitiesDiv = document.getElementById('current-vulnerabilities');
-            const routingCoords = document.getElementById('routing-coords');
-
-            const vulns = data.vulnerabilities?.join('; ') || 'None reported.';
-            currentVulnerabilitiesDiv.innerHTML = `<span class="font-bold text-indigo-700">${vulns}</span>`;
-            routingCoords.textContent = `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)} (Source: ${userLocation.source})`;
-        }
-
-
-// --- Feature 1 & 2: Semantic Decoding & Routing (with Serverless Backend) ---
-
-document.getElementById("semantic-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const inputText = document.getElementById("semantic-input").value;
-    const button = document.getElementById('semantic-submit-button');
-
-    // 1. Setup UI for Loading
-    button.disabled = true; 
-    button.classList.add('opacity-50'); 
-    button.textContent = '✨ Analyzing Situation & Status...';
-    
-    // Clear previous results
-    document.getElementById("analysis-display").textContent = "Analyzing...";
-    document.getElementById("best-match-display").textContent = "Searching for optimal PPS...";
-    document.getElementById("analysis-display").classList.remove("hidden");
-    document.getElementById("best-match-display").classList.remove("hidden");
-    document.getElementById("jamai-citation").classList.add("hidden");
-
-    // Clear Status Area for the new status check (simulated to run on the server)
-    const statusContentDiv = document.getElementById('status-content');
-    const statusCard = document.getElementById('local-status-results-routing');
-    statusContentDiv.innerHTML = '<p class="text-sm text-gray-500 pulse-animation">Fetching real-time weather and alerts...</p>';
-    statusCard.classList.remove('bg-green-100', 'border-green-500', 'bg-red-100', 'border-red-500', 'bg-gray-100');
-    statusCard.classList.add('bg-blue-100', 'border-blue-500'); // Temp loading color
-
-    const payload = {
-        input: {
-            location: userLocation,
-            familyData: window.familyData,
-            description: inputText
-        }
-    };
-
-    // 2. Send to Serverless Backend (which handles JamAI LLM calls)
-    try {
-        const res = await fetch("/api/jamai/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await res.json();
-        
-        if (data.jamai_status === "success" && data.output) {
-            const output = data.output;
-            
-            // 3. Update Family Data with Decoded Tags
-            const decodedTags = output.decoded_tags.split(',').map(t => t.trim()).filter(Boolean);
-            window.saveFamilyData({ vulnerabilities: decodedTags.length > 0 ? decodedTags : ['N/A Pax'] });
-            
-            // 4. Update UI with LLM Results
-            document.getElementById("current-vulnerabilities").innerHTML = `<span class="font-bold text-indigo-700">${(decodedTags.length > 0 ? decodedTags : ['N/A Pax']).join('; ')}</span>`;
-            
-            // The python backend logic is missing the real-time status, so we mock it for the frontend UI.
-            statusContentDiv.innerHTML = `<p class="text-sm whitespace-pre-wrap text-gray-800">Status Check Mock: Assuming Medium Risk. Please verify with official sources. Routing below prioritizes safety features.</p>`;
-            statusCard.classList.remove('bg-blue-100', 'border-blue-500');
-            statusCard.classList.add('bg-yellow-100', 'border-yellow-500'); // Mock Medium Risk
-
-            document.getElementById("analysis-display").textContent = output.analysis_text || "No detailed analysis provided.";
-            document.getElementById("best-match-display").innerHTML = `
-                <p class="text-2xl font-extrabold text-green-700">Best Match Found!</p>
-                <p class="text-4xl font-extrabold text-indigo-700 my-2">${output.selected_pps || 'Unknown PPS'}</p>
-                <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
-            `;
-            
-            document.getElementById("jamai-citation").classList.remove("hidden");
-        } else {
-            // Handle API errors
-            const errorText = data.message || (res.statusText ? `HTTP Error: ${res.statusText}` : "An unexpected error occurred in the JamAI call.");
-            document.getElementById("analysis-display").textContent = errorText;
-             document.getElementById("best-match-display").innerHTML = `<p class="text-lg font-bold text-red-600">Routing Failed</p>`;
-        }
-
-    } catch (error) {
-        console.error("Routing API Call Error:", error);
-        document.getElementById("analysis-display").textContent = `Error during routing calculation: ${error.message || error}.`;
-        document.getElementById("best-match-display").innerHTML = `<p class="text-lg font-bold text-red-600">Routing Failed (Network)</p>`;
-    } finally {
-        // 5. Cleanup UI and redirect to Intelligent Route tab
-        button.disabled = false; 
-        button.classList.remove('opacity-50'); 
-        button.textContent = '✨ Get Safe Route & Local Status';
-        showTab("routing");
-    }
-});
-
-
-async function fetchRoutingOutcome() {
-    document.getElementById("save-routing-status").textContent = "Fetching latest successful routing from JamAI...";
-    
-    // Clear previous results
-    document.getElementById("analysis-display").textContent = "Fetching latest routing analysis...";
-    document.getElementById("best-match-display").textContent = "Fetching best PPS match...";
-    document.getElementById("analysis-display").classList.remove("hidden");
-    document.getElementById("best-match-display").classList.remove("hidden");
-    document.getElementById("jamai-citation").classList.add("hidden");
-
-
-    try {
-        const res = await fetch("/api/jamai/get");
-        const data = await res.json();
-        
-        if (data.rows && data.rows.length > 0) {
-            const latest = data.rows[0]; // JamAI list API returns newest first due to order_by desc
-            const output = latest.columns || {};
-            
-            // Extract Decoded Tags
-            const decoded_tags_comp = output.decoded_tags?.choices?.[0]?.message?.content || output.decoded_tags?.choices?.[0]?.text || "";
-            // Extract Analysis
-            const analysis_comp = output.route_analysis?.choices?.[0]?.message?.content || output.route_analysis?.choices?.[0]?.text || "";
-
-            if (decoded_tags_comp) {
-                const tags = decoded_tags_comp.split(',').map(t => t.trim()).filter(Boolean);
-                document.getElementById("current-vulnerabilities").innerHTML = `<span class="font-bold text-indigo-700">${tags.join('; ')}</span>`;
-                window.saveFamilyData({ vulnerabilities: tags });
-            }
-
-            if (analysis_comp) {
-                const lines = analysis_comp.split('\n').map(l => l.trim()).filter(Boolean);
-                const bestLine = lines.reverse().find(l => l.toUpperCase().startsWith('BEST MATCH:'));
-                const analysisText = analysis_comp.replace(bestLine || "", "").trim();
-                const bestMatch = bestLine ? bestLine.replace(/BEST MATCH:/i, '').trim() : "Unknown PPS";
-                
-                document.getElementById("analysis-display").textContent = analysisText;
-                document.getElementById("best-match-display").innerHTML = `
-                    <p class="text-2xl font-extrabold text-green-700">Best Match Found! (from JamAI Table)</p>
-                    <p class="text-4xl font-extrabold text-indigo-700 my-2">${bestMatch}</p>
-                    <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
-                `;
-                document.getElementById("jamai-citation").classList.remove("hidden");
-                document.getElementById("save-routing-status").textContent = "✅ Latest routing refreshed from JamAI table.";
-            } else {
-                document.getElementById("save-routing-status").textContent = "⚠️ Found row in JamAI, but no LLM analysis was available.";
-            }
-        } else {
-            document.getElementById("save-routing-status").textContent = "❌ No previous routing entries found in JamAI table.";
-            document.getElementById("analysis-display").textContent = "No data found. Please run a Needs Assessment first.";
-            document.getElementById("best-match-display").classList.add("hidden");
-        }
-    } catch (err) {
-        console.error("Fetch Routing Error:", err);
-        document.getElementById("save-routing-status").textContent = "❌ Failed to fetch from serverless function.";
-        document.getElementById("analysis-display").textContent = `Error: ${err.message || 'Network error'}.`;
-    }
-}
-
-
-        // --- Feature 3: QR Passport and PKPASS (Simulated) ---
 
         document.getElementById('family-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -625,8 +474,11 @@ async function fetchRoutingOutcome() {
             const vulnerabilities = window.familyData.vulnerabilities || []; 
 
             const formData = {
-                headName: form.headName.value, icNumber: form.icNumber.value, address: form.address.value,
-                familySize: parseInt(form.familySize.value), vulnerabilities: vulnerabilities,
+                headName: form.headName.value,
+                icNumber: form.icNumber.value,
+                address: form.address.value,
+                familySize: parseInt(form.familySize.value),
+                vulnerabilities: vulnerabilities,
             };
 
             formData.jkmPayload = generateJKMQRPayload(formData);
@@ -638,7 +490,6 @@ async function fetchRoutingOutcome() {
                 statusEl.textContent = "Data saved successfully! Your QR Passport is ready.";
                 statusEl.classList.remove('hidden', 'bg-red-100', 'text-red-700');
                 statusEl.classList.add('bg-green-100', 'text-green-700');
-                togglePkpassButton(formData);
             } else {
                 statusEl.textContent = "Error saving data. Check console.";
                 statusEl.classList.remove('hidden', 'bg-green-100', 'text-green-700');
@@ -649,9 +500,14 @@ async function fetchRoutingOutcome() {
 
         function generateJKMQRPayload(data) {
             const payload = {
-                schema: "JKM_PPS_v1.0", timestamp: new Date().toISOString(), ref_id: window.userId.substring(0,12), 
-                nama_ketua: data.headName || 'N/A', no_ic: data.icNumber || 'N/A', alamat: data.address || 'N/A', 
-                jumlah_ahli: data.familySize || 0, keperluan_khas: data.vulnerabilities || []
+                schema: "JKM_PPS_v1.0",
+                timestamp: new Date().toISOString(),
+                ref_id: window.userId.substring(0,12),
+                nama_ketua: data.headName || 'N/A',
+                no_ic: data.icNumber || 'N/A',
+                alamat: data.address || 'N/A',
+                jumlah_ahli: data.familySize || 0,
+                keperluan_khas: data.vulnerabilities || []
             };
             return JSON.stringify(payload, null, 0);
         }
@@ -659,105 +515,31 @@ async function fetchRoutingOutcome() {
         function updateQRCode(data = window.familyData) {
             const statusEl = document.getElementById('qr-status');
             const previewEl = document.getElementById('jkm-payload-preview');
-            const copyButton = document.getElementById('copy-payload-button');
             const canvas = document.getElementById('qr-canvas');
 
             if (data && data.jkmPayload) {
                 statusEl.textContent = "QR Code Generated. Ready to scan.";
-                statusEl.classList.remove('text-red-500'); statusEl.classList.add('text-green-600');
-                copyButton.classList.remove('hidden');
-                previewEl.textContent = JSON.stringify(JSON.parse(data.jkmPayload), null, 2); // Prettier JSON in preview
+                statusEl.classList.remove('text-red-500');
+                statusEl.classList.add('text-green-600');
+                previewEl.textContent = JSON.stringify(JSON.parse(data.jkmPayload), null, 2);
 
                 QRCode.toCanvas(canvas, data.jkmPayload, {
-                    errorCorrectionLevel: 'H', width: 300, margin: 1, color: { dark: '#1f2937', light: '#ffffff' }
-                }, function (error) { if (error) console.error(error); });
+                    errorCorrectionLevel: 'H',
+                    width: 300,
+                    margin: 1,
+                    color: { dark: '#1f2937', light: '#ffffff' }
+                }, function (error) {
+                    if (error) console.error(error);
+                });
             } else {
                 statusEl.textContent = "No family data saved yet. Please complete the form above.";
-                statusEl.classList.add('text-red-500'); statusEl.classList.remove('text-green-600');
+                statusEl.classList.add('text-red-500');
+                statusEl.classList.remove('text-green-600');
                 previewEl.textContent = 'Awaiting data...';
-                copyButton.classList.add('hidden');
-                const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
         }
-        
-        // Removed the JKM Payload copy function as it was missing from the script but needed for the button
-        function copyJKMPayload() {
-            if (window.familyData && window.familyData.jkmPayload) {
-                navigator.clipboard.writeText(window.familyData.jkmPayload).then(() => {
-                    alert('JKM Payload copied to clipboard!');
-                }).catch(err => {
-                    console.error('Could not copy text: ', err);
-                });
-            }
-        }
-
-        document.getElementById('email-pkpass-button').addEventListener('click', async () => {
-            if (!window.familyData || !window.familyData.jkmPayload) return;
-
-            const email = prompt("Enter your email address to receive the Wallet Pass (.pkpass):\n\nNOTE: This is a simulation. Generating a PKPASS requires a secure server.");
-            if (!email) return;
-
-            const btn = document.getElementById('email-pkpass-button');
-            const pkpassStatusEl = document.getElementById('pkpass-status');
-            const originalText = btn.textContent;
-            
-            btn.disabled = true;
-            btn.textContent = 'Sending... Please Wait.';
-            pkpassStatusEl.textContent = `Requesting Wallet Pass generation for ${email}...`;
-
-            try {
-                // Simulate network latency and server processing time
-                await new Promise(resolve => setTimeout(resolve, 2500)); 
-
-                pkpassStatusEl.innerHTML = `✅ Success! A server-generated <b>Wallet Pass (.pkpass)</b> has been hypothetically emailed to <b>${email}</b>.`;
-                btn.textContent = 'Email Sent! ✅';
-
-            } catch (e) {
-                pkpassStatusEl.textContent = '❌ Generation Failed. Wallet Pass requires a secure server backend.';
-                btn.textContent = 'Email Failed ❌';
-            } finally {
-                setTimeout(() => {
-                    btn.textContent = originalText;
-                    btn.disabled = false;
-                }, 5000);
-            }
-        });
-
-        // --- Feature 4: Rumour Killer (Grounded Q&A - Frontend LLM Call for search demonstration) ---
-
-        document.getElementById('rumour-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const inputEl = document.getElementById('rumour-input');
-            const query = inputEl.value.trim();
-            inputEl.value = '';
-            if (!query) return;
-            await rumourKillerChat(query);
-        });
-        
-        // This function is removed as it was making a direct LLM call which is not what the user's backend setup is for.
-        // The front-end must not have an LLM API key. A proper implementation would proxy this through the serverless function.
-        // For now, I will use a placeholder or remove the functionality entirely, but based on the original script:
-        
-        async function rumourKillerChat(query) {
-             const chatWindow = document.getElementById('chat-window');
-             const submitButton = document.getElementById('rumour-submit-button');
-             
-             chatWindow.innerHTML += `<div class="user-message">${query}</div>`;
-             chatWindow.scrollTop = chatWindow.scrollHeight;
-
-             const loadingHtml = `<div id="ai-loading" class="ai-message bg-red-50 text-red-700 border-red-300"><span class="font-semibold">⚠️ Cannot call LLM directly from the browser in this setup.</span><p class="text-xs mt-1">Please integrate a dedicated proxy server route for the Rumour Killer feature.</p></div>`;
-             chatWindow.innerHTML += loadingHtml;
-             chatWindow.scrollTop = chatWindow.scrollHeight;
-
-             submitButton.disabled = true; submitButton.classList.add('opacity-50');
-             
-             setTimeout(() => {
-                document.getElementById('ai-loading')?.remove();
-                submitButton.disabled = false; submitButton.classList.remove('opacity-50');
-                chatWindow.scrollTop = chatWindow.scrollHeight;
-             }, 3000);
-        }
-
 
         // --- Tab Management ---
         function showTab(tabId) {
