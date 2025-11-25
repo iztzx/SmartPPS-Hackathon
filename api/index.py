@@ -18,7 +18,6 @@ TABLE_ID = os.getenv("ACTION_TABLE_ID")
 jamai = JamAI(
     project_id=PROJECT_ID, 
     token=API_KEY, 
-    base_url=API_URL
 )
 
 @app.route('/api/analyze', methods=['POST'])
