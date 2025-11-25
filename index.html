@@ -54,7 +54,16 @@
                     
                     <div class="space-y-3">
                         <input type="text" id="fullName" placeholder="Head of Household Name" class="w-full border p-2 rounded focus:ring-2 ring-blue-200 outline-none" oninput="generateQR()">
-                        <input type="text" id="icNumber" placeholder="IC Number (Head)" class="w-full border p-2 rounded focus:ring-2 ring-blue-200 outline-none" oninput="generateQR()">
+                        <input 
+                            type="text" 
+                            id="icNumber" 
+                            placeholder="IC Number (Head) - 12 Digits" 
+                            class="w-full border p-2 rounded focus:ring-2 ring-blue-200 outline-none" 
+                            oninput="generateQR()"
+                            pattern="\d{12}" 
+                            maxlength="12"
+                            title="Please enter exactly 12 digits without dashes or spaces."
+                        >
                         
                         <label class="block text-sm font-semibold mt-2">Current Situation / Needs:</label>
                         <textarea id="situationInput" rows="3" 
@@ -118,7 +127,7 @@
     </div>
 
     <script>
-        // --- Location Tracking (New) ---
+        // --- Location Tracking ---
         let userLocation = { lat: 3.1579, lon: 101.7116, source: 'Default' };
         
         function updateLocationUI() {
@@ -156,15 +165,26 @@
             }
         }
         
-        // --- Feature B: QR Code Logic (Updated for no initial QR) ---
+        // --- Feature B: QR Code Logic ---
         const qrDisplay = document.getElementById("qrcodeDisplay");
-        let qrcode; // Declare qrcode globally, initialize only when needed.
+        let qrcode; 
 
         function generateQR() {
             const name = document.getElementById("fullName").value.trim();
             const ic = document.getElementById("icNumber").value.trim();
             const situation = document.getElementById("situationInput").value.trim();
             const qrPlaceholder = document.getElementById("qrPlaceholder");
+
+            // Validate IC length for a better user experience on QR generation
+            if (ic && ic.length !== 12 && ic.length > 0) {
+                 // Do not generate QR if IC is wrong length, but still check other fields
+                 if (!name && !situation) {
+                    qrDisplay.classList.add('hidden');
+                    qrPlaceholder.classList.remove('hidden');
+                    return;
+                 }
+            }
+
 
             // Check if there is any meaningful input
             if (!name && !ic && !situation) {
@@ -203,9 +223,10 @@
         }
 
 
-        // --- Feature A: JamAI Integration (Updated with Dynamic Location and Error Handling) ---
+        // --- Feature A: JamAI Integration ---
         async function analyzeRoute() {
             const situation = document.getElementById("situationInput").value;
+            const icInput = document.getElementById("icNumber");
             const btn = document.getElementById("analyzeBtn");
             const loader = document.getElementById("loader");
             const results = document.getElementById("resultsArea");
@@ -219,6 +240,13 @@
                 return;
             }
             
+            // Client-side validation for IC before API call
+            if (icInput.value.trim() && icInput.value.trim().length !== 12) {
+                 routingStatus.textContent = "Error: IC Number must be exactly 12 digits for accurate registration.";
+                 routingStatus.classList.remove("hidden");
+                 return;
+            }
+            
             // Dynamic Location String
             const locationString = `Lat: ${userLocation.lat.toFixed(4)}, Long: ${userLocation.lon.toFixed(4)}`;
 
@@ -228,6 +256,7 @@
             loader.classList.remove("hidden");
             results.classList.add("hidden");
             routingStatus.classList.add("hidden"); // Clear previous status
+            routingStatus.classList.remove("bg-green-100", "text-green-700"); // Remove success colors
 
             try {
                 // Call the Python Vercel Backend
@@ -259,6 +288,11 @@
                             tagsContainer.appendChild(span);
                         });
                     }
+                    
+                    routingStatus.textContent = "✅ Safe Shelter found successfully!";
+                    routingStatus.classList.remove("bg-red-100", "text-red-700");
+                    routingStatus.classList.add("bg-green-100", "text-green-700");
+                    routingStatus.classList.remove("hidden");
 
                     results.classList.remove("hidden");
                 } else if (data.error) {
@@ -267,7 +301,7 @@
                     routingStatus.classList.remove("hidden");
                 } else {
                     // General HTTP error or unexpected response
-                    routingStatus.textContent = `API Error: Request failed with status ${response.status}. Check Vercel logs.`;
+                    routingStatus.textContent = `API Error: Request failed with status ${response.status} (${response.statusText}). Check Vercel logs.`;
                     routingStatus.classList.remove("hidden");
                 }
 
@@ -285,7 +319,7 @@
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
             getLocation();
-            generateQR(); // This call will now immediately check for empty fields and hide the QR if no data is present.
+            generateQR();
         });
     </script>
 </body>
