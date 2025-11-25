@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
+from datetime import datetime
 from jamaibase import JamAI, types as p
 import os
-from datetime import datetime
+import sys # Import sys to force flush logs to Vercel console
 
 app = Flask(__name__)
 
@@ -22,19 +23,19 @@ def analyze_route():
         data = request.json
         user_input = data.get('user_input')
         location_details = data.get('location_details')
-        row_id_to_fetch = data.get('row_id') # Key for polling request
+        row_id_to_fetch = data.get('row_id') 
 
         if not user_input and not row_id_to_fetch:
             return jsonify({"error": "User input or row_id is required"}), 400
 
         # =========================================================
-        # MODE 2: FETCH STATUS (The polling request from the client)
+        # MODE 2: FETCH STATUS (Polling)
         # =========================================================
         if row_id_to_fetch:
+            print(f"DEBUG: Fetching Row ID: {row_id_to_fetch}", file=sys.stderr)
+            
             try:
-                # FIX 1: Explicitly request the output columns.
-                # Without 'columns', the SDK often returns only input/metadata.
-                # We also assume 'decoded_tags' is a column name in your Action Table.
+                # 1. Fetch the row
                 row_response = jamai.table.get_table_row(
                     p.TableType.ACTION,
                     TABLE_ID,
@@ -42,30 +43,46 @@ def analyze_route():
                     columns=["route_analysis", "selected_pps", "decoded_tags"]
                 )
                 
-                # FIX 2: Handle Response as an Object (Dot Notation)
-                # The SDK returns a Pydantic model, so we access .row instead of ["row"]
-                row_data = row_response.row 
-
-                # FIX 3: Check for completion
-                # We check if the 'route_analysis' cell has a non-empty 'value'.
-                # Note: We use .get() on the row dictionary, then access .value on the cell object.
-                route_analysis_cell = row_data.get("route_analysis")
-                selected_pps_cell = row_data.get("selected_pps")
-                decoded_tags_cell = row_data.get("decoded_tags")
-
-                if (route_analysis_cell and route_analysis_cell.value and 
-                    selected_pps_cell and selected_pps_cell.value):
+                # 2. Extract the row data safely
+                # If it's a Pydantic object, .row might be a dict or object. 
+                # We handle both by trying to convert or access directly.
+                row_data = row_response.row
+                
+                # Helper function to handle Dict vs Object ambiguity
+                def get_cell_val(data_row, key):
+                    # Step 1: Get the cell (Dict get or Object attribute)
+                    if isinstance(data_row, dict):
+                        cell = data_row.get(key)
+                    else:
+                        cell = getattr(data_row, key, None)
                     
+                    if not cell: return None
+
+                    # Step 2: Get the value inside the cell
+                    # JamAI cells are usually dicts like {'value': '...'} or objects with .value
+                    if isinstance(cell, dict):
+                        return cell.get("value")
+                    else:
+                        return getattr(cell, "value", None)
+
+                # 3. Retrieve values using the helper
+                analysis_text = get_cell_val(row_data, "route_analysis")
+                pps_text = get_cell_val(row_data, "selected_pps")
+                tags_text = get_cell_val(row_data, "decoded_tags")
+
+                print(f"DEBUG: Data Found? Analysis: {bool(analysis_text)}, PPS: {bool(pps_text)}", file=sys.stderr)
+
+                # 4. Check completion
+                if analysis_text and pps_text:
                     return jsonify({
                         "success": True,
                         "status": "complete",
-                        "analysis": route_analysis_cell.value,
-                        # Handle tags safely if the column is empty/missing
-                        "tags": decoded_tags_cell.value if decoded_tags_cell else "",
-                        "selected_pps": selected_pps_cell.value
+                        "analysis": analysis_text,
+                        "tags": tags_text if tags_text else "",
+                        "selected_pps": pps_text
                     }), 200
                 
-                # If values are missing/empty, it's still processing
+                # If we are here, data is missing or empty
                 return jsonify({
                     "success": False, 
                     "status": "pending", 
@@ -73,22 +90,27 @@ def analyze_route():
                 }), 200
 
             except Exception as e:
-                # Catch specific fetching errors (e.g. row not found yet)
-                print(f"Polling check error: {e}")
+                # PRINT THE ACTUAL ERROR to Vercel logs
+                print(f"ERROR in polling loop: {e}", file=sys.stderr)
                 return jsonify({
                     "success": False, 
                     "status": "pending", 
+                    "error_details": str(e), # Send error to frontend for inspection
                     "row_id": row_id_to_fetch
                 }), 200
 
         # =========================================================
-        # MODE 1: SUBMIT JOB (The initial request)
+        # MODE 1: SUBMIT JOB
         # =========================================================
         else:
+            print("DEBUG: Submitting new job...", file=sys.stderr)
+            
+            # RESTORED: 'action' and 'created_at'
             row_data = {
+                "action": "find_safe_shelter",       # Tells JamAI which prompt/skill to use
                 "user_input": user_input,
                 "location_details": location_details,
-                # "created_at": datetime.now().isoformat() # Optional: Add if your table expects it
+                "created_at": datetime.now().isoformat() # Timestamps the request
             }
             
             add_request = p.MultiRowAddRequest(
@@ -103,11 +125,11 @@ def analyze_route():
             )
             
             if not completion.rows:
-                 return jsonify({"error": "Failed to submit job to JamAI"}), 500
+                 return jsonify({"error": "Failed to submit job"}), 500
 
             row_id = completion.rows[0].row_id
+            print(f"DEBUG: Job Submitted. Row ID: {row_id}", file=sys.stderr)
 
-            # Return job ID immediately so client can start polling
             return jsonify({
                 "success": True, 
                 "status": "submitted", 
@@ -115,7 +137,7 @@ def analyze_route():
             }), 200
 
     except Exception as e:
-        print(f"FATAL ERROR in analyze_route: {e}")
+        print(f"FATAL ERROR in analyze_route: {e}", file=sys.stderr)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
