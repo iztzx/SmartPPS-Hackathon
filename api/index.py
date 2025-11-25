@@ -36,55 +36,55 @@ def analyze_route():
             print(f"DEBUG: Fetching Row ID: {row_id_to_fetch}", file=sys.stderr)
             
             try:
-                # 1. Fetch the row
+                # 1. Fetch the row with specific columns
                 row_response = jamai.table.get_table_row(
                     p.TableType.ACTION,
                     TABLE_ID,
                     row_id_to_fetch,
                     columns=["route_analysis", "selected_pps", "decoded_tags"]
                 )
+
+                # --- UNIVERSAL DATA NORMALIZER ---
+                # Converts Pydantic models, Objects, or Dicts into a standard Dict
+                def normalize_to_dict(obj):
+                    if isinstance(obj, dict):
+                        return obj
+                    if hasattr(obj, "to_dict"): # Common in SDKs
+                        return obj.to_dict()
+                    if hasattr(obj, "model_dump"): # Pydantic v2
+                        return obj.model_dump()
+                    if hasattr(obj, "dict"): # Pydantic v1
+                        return obj.dict()
+                    if hasattr(obj, "__dict__"): # Generic Object
+                        return obj.__dict__
+                    return {}
+
+                # 2. Extract the actual row data
+                full_response_dict = normalize_to_dict(row_response)
                 
-                # 2. INTELLIGENT DATA EXTRACTION (Fixes "Row data is empty")
-                row_data = None
-                
-                # Case A: Response is a Dict
-                if isinstance(row_response, dict):
-                    # Debug: Print keys to see what we actually got
-                    print(f"DEBUG: Response Keys: {list(row_response.keys())}", file=sys.stderr)
-                    
-                    if "row" in row_response:
-                        row_data = row_response["row"]
-                    elif "row_id" in row_response:
-                        # The response IS the row
-                        row_data = row_response
-                
-                # Case B: Response is an Object (Pydantic)
+                # Search strategy: Is the data at top level? Or inside 'row'?
+                row_data = {}
+                if "route_analysis" in full_response_dict:
+                    row_data = full_response_dict
+                elif "row" in full_response_dict:
+                    row_data = normalize_to_dict(full_response_dict["row"])
                 else:
-                    # Try accessing .row attribute
-                    row_data = getattr(row_response, "row", None)
-                    # If that failed, maybe the object itself is the row (check for row_id)
-                    if not row_data and getattr(row_response, "row_id", None):
-                        row_data = row_response
+                    # Last ditch: Print keys to debug log if we fail
+                    print(f"DEBUG: Unknown structure. Keys found: {list(full_response_dict.keys())}", file=sys.stderr)
 
-                if not row_data:
-                    print("DEBUG: Still unable to find row data after fallback checks.", file=sys.stderr)
-                    return jsonify({"success": False, "status": "pending"}), 200
-
-                # 3. Helper to safely extract cell values
-                def get_cell_val(data_row, key):
-                    # Step 1: Access the column/cell
-                    if isinstance(data_row, dict):
-                        cell = data_row.get(key)
-                    else:
-                        cell = getattr(data_row, key, None)
-                    
+                # 3. Helper to extract cell values safely
+                def get_cell_val(data_dict, key):
+                    if not data_dict: return None
+                    cell = data_dict.get(key)
                     if not cell: return None
-
-                    # Step 2: Access the 'value' inside the cell
+                    
+                    # Cell might be a dict {'value': '...'} or just the value
                     if isinstance(cell, dict):
                         return cell.get("value")
-                    else:
-                        return getattr(cell, "value", None)
+                    # If it's an object with .value
+                    if hasattr(cell, "value"):
+                        return cell.value
+                    return cell # fallback (maybe it's the raw string)
 
                 # 4. Extract content
                 analysis_text = get_cell_val(row_data, "route_analysis")
@@ -95,19 +95,18 @@ def analyze_route():
                 if analysis_text and pps_text:
                     
                     # --- CLEANUP: Limit selected_pps to just the name ---
-                    # Logic: If output is like "The best PPS is Hall A", we try to keep just "Hall A".
-                    # This is a heuristic. Ideally, update JamAI prompts to be concise.
                     clean_pps = pps_text
                     
-                    # Remove common prefixes (Case insensitive)
-                    prefixes = ["The best match is", "The best PPS is", "Selected PPS:", "Best Option:"]
-                    for prefix in prefixes:
-                        if prefix.lower() in clean_pps.lower():
-                            # split and take the part after the prefix
-                            clean_pps = re.split(prefix, clean_pps, flags=re.IGNORECASE)[1]
-                    
-                    # Clean up punctuation/markdown
-                    clean_pps = clean_pps.strip(" .*:_")
+                    # Heuristic: If it looks like a sentence, split it.
+                    # We look for "is [Name]" or "PPS: [Name]" or just take the whole thing if short.
+                    if len(clean_pps) > 50: 
+                        # Regex to find "Shelter X" or "Hall Y"
+                        match = re.search(r"(Shelter\s+\d+|[\w\s]+(Hall|Center|Centre|School|Club))", clean_pps, re.IGNORECASE)
+                        if match:
+                            clean_pps = match.group(0).strip()
+                        else:
+                            # Fallback: Split by common separators
+                            clean_pps = clean_pps.split('.')[0].split(',')[0] # Take first phrase
 
                     return jsonify({
                         "success": True,
@@ -117,6 +116,7 @@ def analyze_route():
                         "selected_pps": clean_pps
                     }), 200
                 
+                # Data pending
                 return jsonify({
                     "success": False, 
                     "status": "pending", 
@@ -125,7 +125,6 @@ def analyze_route():
 
             except Exception as e:
                 print(f"ERROR in polling loop: {e}", file=sys.stderr)
-                # Return the error details so we can see them in frontend if needed
                 return jsonify({
                     "success": False, 
                     "status": "pending", 
@@ -158,18 +157,12 @@ def analyze_route():
             
             # Robust extraction of row_id from submission
             row_id = None
-            if isinstance(completion, dict):
-                rows = completion.get("rows", [])
+            if hasattr(completion, "rows") and completion.rows:
+                row_id = completion.rows[0].row_id
+            elif isinstance(completion, dict) and "rows" in completion:
+                rows = completion["rows"]
                 if rows:
-                    # check if row is dict or object
-                    first_row = rows[0]
-                    if isinstance(first_row, dict):
-                        row_id = first_row.get("row_id")
-                    else:
-                        row_id = getattr(first_row, "row_id", None)
-            else:
-                if completion.rows:
-                    row_id = completion.rows[0].row_id
+                    row_id = rows[0].get("row_id")
 
             if not row_id:
                 return jsonify({"error": "Failed to submit job - no Row ID returned"}), 500
