@@ -74,9 +74,9 @@ def call_llm(api_url, pat, payload, timeout=30):
 
 
 def decode_vulnerabilities(api_url, pat, text):
-    system = { 'parts': [{ 'text': 'You are a data decoder. Provide only a comma-separated list of standardized tags (e.g., "4 Pax, Bedridden, Pet/Cat").' }] }
+    system = { 'parts': [{ 'text': 'You are a data decoder using Qwen3-VL. Provide only a comma-separated list of standardized tags (e.g., "4 Pax, Bedridden, Pet/Cat").' }] }
     contents = [{ 'parts': [{ 'text': f'Action: decode_vulnerabilities\nUser Input: "{text}"' }] }]
-    payload = { 'systemInstruction': system, 'contents': contents }
+    payload = { 'systemInstruction': system, 'contents': contents, 'model': 'qwen3-vl' }
     status, result = call_llm(api_url, pat, payload)
     decoded_text = ''
     if isinstance(result, dict):
@@ -89,10 +89,10 @@ def decode_vulnerabilities(api_url, pat, text):
 
 def route_optimal_pps(api_url, pat, tags, location_str='Unknown'):
     system_prompt = (
-        'You are an emergency management AI. Use the SOP knowledge and provided PPS data to select the best-suited PPS. Provide a short reasoning and end with "BEST MATCH: <PPS name>".'
+        'You are an emergency management AI using Qwen3-VL with RAG. Query the pps_knowledge table to get available PPS. Select the best-suited PPS based on user needs and constraints. Provide reasoning and end with "BEST MATCH: <PPS name>".'
     )
-    user_query = f"Action: route_optimal_pps\nUser Needs: {'; '.join(tags)}\nLocation: {location_str}\nPPS: {json.dumps(PPS_DATA)}\nSOP: {SOP_KNOWLEDGE}"
-    payload = { 'systemInstruction': { 'parts': [{ 'text': system_prompt }] }, 'contents': [{ 'parts': [{ 'text': user_query }] }] }
+    user_query = f"Action: route_optimal_pps\nUser Needs: {'; '.join(tags)}\nLocation: {location_str}\nSOP: {SOP_KNOWLEDGE}\n\nQuery pps_knowledge table for available PPS centers and select the best match."
+    payload = { 'systemInstruction': { 'parts': [{ 'text': system_prompt }] }, 'contents': [{ 'parts': [{ 'text': user_query }] }], 'model': 'qwen3-vl' }
     status, result = call_llm(api_url, pat, payload)
     full_text = ''
     if isinstance(result, dict):

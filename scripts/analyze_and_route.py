@@ -72,9 +72,9 @@ def call_jamai(api_url, pat, payload, timeout=30):
 
 
 def decode_vulnerabilities(api_url, pat, text):
-    system = { 'parts': [{ 'text': 'You are a data decoder. Provide only a comma-separated list of standardized tags.' }] }
+    system = { 'parts': [{ 'text': 'You are a data decoder using Qwen3-VL. Provide only a comma-separated list of standardized tags.' }] }
     contents = [{ 'parts': [{ 'text': f'Analyze the following emergency situation and output a comma-separated list of tags. User Input: "{text}"' }] }]
-    payload = { 'systemInstruction': system, 'contents': contents }
+    payload = { 'systemInstruction': system, 'contents': contents, 'model': 'qwen3-vl' }
 
     status, result = call_jamai(api_url, pat, payload)
     if isinstance(result, dict):
@@ -88,14 +88,15 @@ def decode_vulnerabilities(api_url, pat, text):
 
 def route_optimal_pps(api_url, pat, decoded_tags, location_str='Unknown Location'):
     system_prompt = (
-        "You are an emergency management AI. Use the supplied SOP knowledge and the PPS list to ground your recommendations (RAG). Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah))."
+        "You are an emergency management AI using Qwen3-VL with RAG. Query the 'pps_knowledge' table to retrieve available PPS centers and ground your recommendations. Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought. Finally, output the name of the BEST MATCH in its own line (e.g., BEST MATCH: PPS North (Sekolah))."
     )
 
-    user_query = f"User Needs: {'; '.join(decoded_tags)}. Location: {location_str}. PPS: {json.dumps(PPS_DATA)}. SOP: {SOP_KNOWLEDGE}"
+    user_query = f"User Needs: {'; '.join(decoded_tags)}. Location: {location_str}. SOP: {SOP_KNOWLEDGE}. Query pps_knowledge table for available PPS and their features."
 
     payload = {
         'systemInstruction': { 'parts': [{ 'text': system_prompt }] },
-        'contents': [{ 'parts': [{ 'text': user_query }] }]
+        'contents': [{ 'parts': [{ 'text': user_query }] }],
+        'model': 'qwen3-vl'
     }
 
     status, result = call_jamai(api_url, pat, payload)

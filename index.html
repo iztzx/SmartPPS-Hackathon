@@ -583,13 +583,10 @@
         }
 
 
-        // --- Feature 1 & 2: Semantic Decoding & Routing ---
-
-        const PPS_DATA = [
-            { id: 1, name: "PPS North (Sekolah)", distance_km: 1.0, lat: 1.5000, lon: 103.7500, features: "2nd floor classrooms only, No lift, Limited parking", constraints: "Cannot accommodate bedridden patients (stairs)."},
-            { id: 2, name: "PPS Central (Dewan)", distance_km: 2.0, lat: 1.4800, lon: 103.7300, features: "Ground floor access, Ample parking, Strict pet policy", constraints: "Strict 'No Animals' policy."},
-            { id: 3, name: "PPS South (Kolej)", distance_km: 4.0, lat: 1.4500, lon: 103.7200, features: "OKU toilets, Designated outdoor pet area, Ground floor halls", constraints: "None relevant to standard needs."}
-        ];
+        // --- Feature 1 & 2: Semantic Decoding & Routing (with RAG and Qwen3-VL) ---
+        // PPS data is now stored in 'pps_knowledge' action table for RAG grounding
+        // Workflow: user input -> decode_vulnerabilities (action table) -> route_optimal_pps (action table with RAG)
+        const PPS_DATA = []; // Fetched from pps_knowledge table at runtime
         
         // SOP Knowledge: Malaysian Flood Mitigation - concise grounding text for RAG
         const SOP_KNOWLEDGE = `Standard Operating Procedures for Malaysian Flood Mitigation (summary):
