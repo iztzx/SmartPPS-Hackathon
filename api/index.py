@@ -17,7 +17,7 @@ TABLE_ID = os.getenv("ACTION_TABLE_ID")
 # Initialize JamAI Client
 jamai = JamAI(
     project_id=PROJECT_ID, 
-    api_token=API_KEY, 
+    token=API_KEY, 
     base_url=API_URL
 )
 
