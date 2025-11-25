@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from jamaibase import JamAI, types as p
 import os
 import sys
+import re
 from datetime import datetime
 
 app = Flask(__name__)
@@ -43,20 +44,35 @@ def analyze_route():
                     columns=["route_analysis", "selected_pps", "decoded_tags"]
                 )
                 
-                # FIX: Check if response is a dict or object
+                # 2. INTELLIGENT DATA EXTRACTION (Fixes "Row data is empty")
+                row_data = None
+                
+                # Case A: Response is a Dict
                 if isinstance(row_response, dict):
-                    row_data = row_response.get("row")
+                    # Debug: Print keys to see what we actually got
+                    print(f"DEBUG: Response Keys: {list(row_response.keys())}", file=sys.stderr)
+                    
+                    if "row" in row_response:
+                        row_data = row_response["row"]
+                    elif "row_id" in row_response:
+                        # The response IS the row
+                        row_data = row_response
+                
+                # Case B: Response is an Object (Pydantic)
                 else:
-                    # Fallback if it is an object
+                    # Try accessing .row attribute
                     row_data = getattr(row_response, "row", None)
+                    # If that failed, maybe the object itself is the row (check for row_id)
+                    if not row_data and getattr(row_response, "row_id", None):
+                        row_data = row_response
 
                 if not row_data:
-                    print("DEBUG: Row data is empty/None", file=sys.stderr)
+                    print("DEBUG: Still unable to find row data after fallback checks.", file=sys.stderr)
                     return jsonify({"success": False, "status": "pending"}), 200
 
-                # Helper function to safely get 'value' from a cell
+                # 3. Helper to safely extract cell values
                 def get_cell_val(data_row, key):
-                    # 1. Get the cell (Dict get or Object attribute)
+                    # Step 1: Access the column/cell
                     if isinstance(data_row, dict):
                         cell = data_row.get(key)
                     else:
@@ -64,30 +80,43 @@ def analyze_route():
                     
                     if not cell: return None
 
-                    # 2. Get the value inside the cell
+                    # Step 2: Access the 'value' inside the cell
                     if isinstance(cell, dict):
                         return cell.get("value")
                     else:
                         return getattr(cell, "value", None)
 
-                # 3. Retrieve values using the helper
+                # 4. Extract content
                 analysis_text = get_cell_val(row_data, "route_analysis")
                 pps_text = get_cell_val(row_data, "selected_pps")
                 tags_text = get_cell_val(row_data, "decoded_tags")
 
-                print(f"DEBUG: Data Found? Analysis: {bool(analysis_text)}, PPS: {bool(pps_text)}", file=sys.stderr)
-
-                # 4. Check completion
+                # 5. Check completion
                 if analysis_text and pps_text:
+                    
+                    # --- CLEANUP: Limit selected_pps to just the name ---
+                    # Logic: If output is like "The best PPS is Hall A", we try to keep just "Hall A".
+                    # This is a heuristic. Ideally, update JamAI prompts to be concise.
+                    clean_pps = pps_text
+                    
+                    # Remove common prefixes (Case insensitive)
+                    prefixes = ["The best match is", "The best PPS is", "Selected PPS:", "Best Option:"]
+                    for prefix in prefixes:
+                        if prefix.lower() in clean_pps.lower():
+                            # split and take the part after the prefix
+                            clean_pps = re.split(prefix, clean_pps, flags=re.IGNORECASE)[1]
+                    
+                    # Clean up punctuation/markdown
+                    clean_pps = clean_pps.strip(" .*:_")
+
                     return jsonify({
                         "success": True,
                         "status": "complete",
                         "analysis": analysis_text,
                         "tags": tags_text if tags_text else "",
-                        "selected_pps": pps_text
+                        "selected_pps": clean_pps
                     }), 200
                 
-                # If we are here, data is missing or empty
                 return jsonify({
                     "success": False, 
                     "status": "pending", 
@@ -96,6 +125,7 @@ def analyze_route():
 
             except Exception as e:
                 print(f"ERROR in polling loop: {e}", file=sys.stderr)
+                # Return the error details so we can see them in frontend if needed
                 return jsonify({
                     "success": False, 
                     "status": "pending", 
@@ -126,14 +156,23 @@ def analyze_route():
                 request=add_request,
             )
             
-            # Check if completion is a dict or object
+            # Robust extraction of row_id from submission
+            row_id = None
             if isinstance(completion, dict):
-                rows = completion.get("rows")
-                if not rows: return jsonify({"error": "Failed to submit job"}), 500
-                row_id = rows[0].get("row_id")
+                rows = completion.get("rows", [])
+                if rows:
+                    # check if row is dict or object
+                    first_row = rows[0]
+                    if isinstance(first_row, dict):
+                        row_id = first_row.get("row_id")
+                    else:
+                        row_id = getattr(first_row, "row_id", None)
             else:
-                if not completion.rows: return jsonify({"error": "Failed to submit job"}), 500
-                row_id = completion.rows[0].row_id
+                if completion.rows:
+                    row_id = completion.rows[0].row_id
+
+            if not row_id:
+                return jsonify({"error": "Failed to submit job - no Row ID returned"}), 500
 
             print(f"DEBUG: Job Submitted. Row ID: {row_id}", file=sys.stderr)
 
