@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from jamaibase import JamAI, types as p # <<<< FINAL FIX HERE
+from jamaibase import JamAI, types as p
 import os
 import time
 from datetime import datetime
@@ -30,13 +30,14 @@ def analyze_route():
 
         # 2. Add Row to JamAI Action Table
         row_data = {
+            # Ensure your JamAI table setup uses these input columns
             "action": "find_safe_shelter",
             "user_input": user_input,
             "location_details": location_details,
             "created_at": datetime.now().isoformat()
         }
         
-        # Uses p.MultiRowAddRequest (replaces deprecated RowAddRequest)
+        # Uses p.MultiRowAddRequest 
         add_request = p.MultiRowAddRequest(
             table_id=TABLE_ID,
             data=[row_data],
@@ -67,9 +68,12 @@ def analyze_route():
                 row_id
             )
             
-            # Check if the LLM output column is not null/empty
-            if row_response.row and row_response.row.get("route_analysis"):
-                final_row = row_response.row
+            # 💡 FIX: Check for the existence of the new 'selected_pps' column
+            if (row_response.get("row") and 
+                row_response["row"].get("route_analysis") and 
+                row_response["row"].get("selected_pps")):
+                
+                final_row = row_response["row"]
                 break
             
             time.sleep(1.5)
@@ -82,7 +86,8 @@ def analyze_route():
         return jsonify({
             "success": True,
             "analysis": final_row.get("route_analysis"),
-            "tags": final_row.get("decoded_tags")
+            "tags": final_row.get("decoded_tags"),
+            "selected_pps": final_row.get("selected_pps") # <<<< NEW COLUMN ADDED
         })
 
     except Exception as e:
