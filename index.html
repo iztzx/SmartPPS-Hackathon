@@ -534,6 +534,64 @@
             return h;
         }
 
+        // Attempt to fetch `pps_knowledge` rows from JamAI as RAG context.
+        // Tries several plausible action-table list/query endpoints and returns
+        // a concatenated, human-readable text block suitable for prompt inclusion.
+        // If the API calls fail (or the table isn't present), falls back to local `PPS_DATA`.
+        async function fetchPPSKnowledge() {
+            // Build candidate base for table action endpoints
+            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].replace(/\/$/, '')}/api/v2/gen_tables/action` : null);
+            const headers = makeJamaiHeaders();
+
+            // Fallback: format local PPS_DATA if remote fetch fails
+            function formatLocal() {
+                return PPS_DATA.map(p => `- ${p.name} | lat:${p.lat} lon:${p.lon} | features: ${p.features} | constraints: ${p.constraints}`).join('\n');
+            }
+
+            if (!tableApiUrl) return formatLocal();
+
+            // Candidate endpoints to try (in order)
+            const candidates = [
+                `${tableApiUrl}/rows/list`,
+                `${tableApiUrl}/rows/query`,
+                // some deployments have the full path under /api/v2/gen_tables/action/rows/list
+                (window.JAMAI_TABLE_API_URL ? window.JAMAI_TABLE_API_URL.replace(/\/rows\/add\/?$/, '/rows/list') : null)
+            ].filter(Boolean);
+
+            for (const url of candidates) {
+                try {
+                    // Try POST-based query with a small payload (many table endpoints accept this)
+                    const body = JSON.stringify({ table_id: 'pps_knowledge', limit: 200 });
+                    const resp = await fetch(url, { method: 'POST', headers, body });
+                    if (!resp.ok) continue;
+                    const j = await resp.json();
+
+                    // Look for rows in common shapes
+                    const rows = j.rows || j.result || j.data || j.items || null;
+                    if (!rows || !rows.length) continue;
+
+                    // Format rows into lines for prompt context
+                    const lines = rows.map(r => {
+                        // Try to normalize common column shapes
+                        const c = r.columns || r.cols || r.data || r;
+                        const name = c.name || c.title || c.id || c['name'] || (typeof r === 'string' ? r : 'unknown');
+                        const lat = c.lat || c.latitude || c.location?.lat || '';
+                        const lon = c.lon || c.longitude || c.location?.lon || '';
+                        const features = c.features || c.description || c.desc || '';
+                        const constraints = c.constraints || c.tags || '';
+                        return `- ${name} | lat:${lat} lon:${lon} | features:${features} | constraints:${constraints}`;
+                    });
+                    if (lines.length) return lines.join('\n');
+                } catch (e) {
+                    // ignore and try next candidate
+                    console.debug('fetchPPSKnowledge candidate failed', url, e);
+                }
+            }
+
+            // If nothing worked, return local fallback
+            return formatLocal();
+        }
+
         function togglePkpassButton(data) {
             const btn = document.getElementById('email-pkpass-button');
             const statusEl = document.getElementById('pkpass-status');
@@ -734,9 +792,20 @@
             statusCard.classList.add(...statusCardClasses.split(' '));
             
             // Routing Logic (UPDATED: Rely on JamAI RAG for PPS list)
-            const systemPrompt = "You are an emergency management AI. Use the supplied SOP knowledge and **query the pps_knowledge table** to ground your recommendations (RAG). Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)).";
-            
-            const userQuery = `User Needs: ${decodedVulnerabilities.join('; ')}. Location: ${locationString}. SOP: ${SOP_KNOWLEDGE}`;
+            const systemPrompt = "You are an emergency management AI. Use the supplied SOP knowledge and the PPS knowledge table (RAG) to ground recommendations. Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)).";
+
+            // Fetch pps_knowledge for RAG grounding (falls back to local PPS_DATA)
+            let ppsKnowledgeText = '';
+            try {
+                ppsKnowledgeText = await fetchPPSKnowledge();
+                // Truncate if excessively large to avoid hitting prompt limits
+                if (ppsKnowledgeText.length > 16000) ppsKnowledgeText = ppsKnowledgeText.slice(0, 16000) + '\n... (truncated)';
+            } catch (e) {
+                console.warn('Could not fetch pps_knowledge; falling back to local PPS_DATA', e);
+                ppsKnowledgeText = PPS_DATA.map(p => `- ${p.name} | features:${p.features} | constraints:${p.constraints}`).join('\n');
+            }
+
+            const userQuery = `User Needs: ${decodedVulnerabilities.join('; ')}. Location: ${locationString}. SOP: ${SOP_KNOWLEDGE}\n\nPPS_KNOWLEDGE:\n${ppsKnowledgeText}`;
             
             let bestMatchName = null;
             let fullAnalysisText = "";
@@ -1002,7 +1071,7 @@
             statusEl.textContent = 'Preparing upload...';
 
             // Determine endpoint: use the explicit table URL if provided, otherwise derive from the API URL.
-            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].rstrip('/')}/api/v2/gen_tables/action/rows/add` : null);
+            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].replace(/\/$/, '')}/api/v2/gen_tables/action/rows/add` : null);
 
             if (!tableApiUrl) {
                 statusEl.textContent = 'Set window.JAMAI_TABLE_API_URL or JAMAI_API_URL+PROJECT_ID.';
@@ -1087,7 +1156,7 @@
             statusEl.textContent = 'Preparing to save routing...';
 
             // Determine endpoint: use the explicit table URL if provided
-            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].rstrip('/')}/api/v2/gen_tables/action/rows/add` : null);
+            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].replace(/\/$/, '')}/api/v2/gen_tables/action/rows/add` : null);
 
             if (!tableApiUrl) {
                 statusEl.textContent = 'Configure JAMAI_TABLE_API_URL or JAMAI_API_URL+PROJECT_ID.';
@@ -1119,13 +1188,60 @@
             }
 
             if (result && result.ok) {
-                statusEl.textContent = 'Saved routing rows.';
-                return result;
+                    statusEl.textContent = 'Saved routing rows.';
+                    // Try to parse completion results from Add-Rows response and update UI/state
+                    try {
+                        const bodyJson = (typeof result.body === 'string') ? JSON.parse(result.body) : (result.body || null);
+                        if (bodyJson) parseAddRowsCompletion(bodyJson);
+                    } catch (e) { console.warn('Could not parse Add-Rows response body for completions', e); }
+                    return result;
             } else {
                 statusEl.textContent = `Save failed (network/API error).`;
                 console.error('postEmergencyRoutingRows failed after retries.');
                 return { ok: false, error: 'Failed after retries' };
             }
+        }
+
+        // Parse Add-Rows completion response and update UI/state
+        function parseAddRowsCompletion(addRowsJson) {
+            try {
+                const rows = addRowsJson.rows || [];
+                if (!rows.length) return;
+                // We expect either one row containing multiple completion columns, or multiple rows
+                const row = rows[0];
+                const columns = row.columns || {};
+
+                // Extract decoded_tags completion if present
+                if (columns.decoded_tags) {
+                    const dec = columns.decoded_tags;
+                    const decodedText = dec?.choices?.[0]?.message?.content || dec?.choices?.[0]?.text || dec?.content?.parts?.[0]?.text || '';
+                    if (decodedText) {
+                        const tags = decodedText.split(',').map(t => t.trim()).filter(Boolean);
+                        window.familyData = window.familyData || {};
+                        window.familyData.vulnerabilities = tags.length ? tags : (window.familyData.vulnerabilities || ['N/A Pax']);
+                        if (window.updateUIAfterDataLoad) window.updateUIAfterDataLoad(window.familyData);
+                        console.log('Parsed decoded_tags from Add-Rows:', tags);
+                    }
+                }
+
+                // Extract routing/completion analysis if present
+                if (columns.route_optimal_pps) {
+                    const rt = columns.route_optimal_pps;
+                    const routeText = rt?.choices?.[0]?.message?.content || rt?.choices?.[0]?.text || rt?.content?.parts?.[0]?.text || '';
+                    if (routeText) {
+                        // Look for BEST MATCH line
+                        const lines = routeText.split('\n').map(l => l.trim()).filter(Boolean);
+                        const bestLine = lines.reverse().find(l => l.toUpperCase().startsWith('BEST MATCH:'));
+                        if (bestLine) {
+                            const best = bestLine.replace(/BEST MATCH:/i, '').trim();
+                            const matchDiv = document.getElementById('best-match-display');
+                            matchDiv.classList.remove('hidden');
+                            matchDiv.innerHTML = `\n                                <p class="text-2xl font-extrabold text-green-700">Best Match Found! (from JamAI)</p>\n                                <p class="text-4xl font-extrabold text-indigo-700 my-2">${best}</p>\n                                <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>\n                            `;
+                            console.log('Parsed BEST MATCH from Add-Rows:', best);
+                        }
+                    }
+                }
+            } catch (e) { console.warn('parseAddRowsCompletion error', e); }
         }
 
         // Called by the "Save routing to JamAI table" button.
