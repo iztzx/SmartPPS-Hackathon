@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SafeRoute: Family-First Disaster Hub</title>
+    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load QR Code Generator -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <style>
         /* Import Inter font (Tailwind default) - kept for explicit confirmation */
@@ -61,7 +63,27 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
+    <!-- Configuration for JamAI Base (CRITICAL FIX) -->
     <script>
+        // NOTE: REPLACE THESE PLACEHOLDERS with your actual JamAI values
+        // If these are incorrect or incomplete, the decoding/routing WILL FAIL.
+
+        // 1. CRITICAL: JamAI Personal Access Token (PAT)
+        window.JAMAI_PAT = "mypat"; 
+
+        // 2. CRITICAL: JamAI Project ID
+        window.JAMAI_PROJECT_ID = "myid"; 
+
+        // 3. CRITICAL FIX: JamAI LLM Inference API URL
+        // Must point to the endpoint that accepts the {contents, systemInstruction} payload.
+        // Example uses a common format:
+        window.JAMAI_API_URL = 'https://api.jamaibase.com/v1/generate/content'; 
+
+        // 4. RECOMMENDED: JamAI Table API URL for Add Rows
+        // Used for logging and SOP upload (emergency_routing table).
+        window.JAMAI_TABLE_API_URL = 'https://api.jamaibase.com/api/v2/gen_tables/action/rows/add';
+
+
         // --- FORCING GUEST MODE ---
         window.isGuest = true;
         const GUEST_ID_KEY = 'smartpps_guest_id';
@@ -98,11 +120,13 @@
         };
     </script>
 
+    <!-- Header -->
     <header class="bg-indigo-700 text-white p-4 shadow-xl">
         <h1 class="text-2xl font-extrabold tracking-tight">SafeRoute: Disaster Hub</h1>
         <p id="user-id-display" class="text-xs opacity-70 mt-1">Guest ID: <span id="uid-span"></span></p>
     </header>
 
+    <!-- Guest Mode Banner -->
     <div id="guest-info" class="p-3 bg-yellow-50 border-b border-yellow-400">
         <div class="max-w-4xl mx-auto text-sm text-yellow-800 font-medium text-center md:text-left">
             ⚠️ **Guest Mode:** All data is saved locally in your browser.
@@ -113,6 +137,7 @@
         </div>
     </div>
     
+    <!-- Tab Navigation (Responsive: 2-col on mobile, 4-col on tablet/desktop) -->
     <nav class="bg-white shadow-lg sticky top-0 z-10">
         <div class="grid grid-cols-2 md:grid-cols-4 border-b border-gray-200">
             <button class="tab-button active" onclick="showTab('situation')" id="tab-situation">1. Situation</button>
@@ -122,8 +147,10 @@
         </div>
     </nav>
 
+    <!-- Main Content Area -->
     <main class="flex-1 p-4 overflow-y-auto max-w-4xl mx-auto">
 
+        <!-- Tab 1: Your Situation (Location & Semantic Input) -->
         <section id="situation" class="tab-content space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">1. Situation & Needs Assessment</h2>
             
@@ -131,12 +158,14 @@
                 **Phase 1:** Confirm your location and clearly describe your family's needs for safe routing.
             </p>
             
+            <!-- Step 1: Location & Status -->
             <div class="card p-5">
                 <h3 class="text-xl font-extrabold text-indigo-700 mb-3 flex items-center gap-2">📍 Confirm Location</h3>
                 
                 <div id="location-status-container">
                     <p id="current-location-display" class="text-base text-gray-700 font-semibold pulse-animation mb-4"></p>
                     
+                    <!-- Dynamic Manual Input Form (shown if GPS/IP fails) -->
                     <form id="manual-location-form" class="mt-4 border-t pt-4 hidden space-y-3">
                         <p class="text-sm font-bold text-red-600">❌ Auto-detection failed. Enter your location manually.</p>
                         <input type="text" id="manual-city-input" required placeholder="Enter City/Suburb (e.g., Segamat, Johor)" class="w-full rounded-lg border-gray-300 shadow-sm p-3 border">
@@ -145,6 +174,7 @@
                 </div>
             </div>
 
+            <!-- Step 2: Semantic Intent Input -->
             <div class="card p-5">
                 <h3 class="text-xl font-extrabold text-gray-800 mb-3">Describe Needs (Semantic Input)</h3>
                 <p class="text-sm text-gray-600 mb-4">Input your family's situation to decode specific needs (vulnerabilities).</p>
@@ -160,9 +190,11 @@
             </div>
         </section>
 
+        <!-- Tab 2: Intelligent Routing -->
         <section id="routing" class="tab-content hidden space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">2. Intelligent Routing Analysis</h2>
             
+            <!-- Local Status / Weather Results -->
             <div id="local-status-results-routing" class="card p-5 border-l-4 transition duration-300">
                 <h3 class="text-xl font-extrabold text-red-700 mb-3 flex items-center">🚨 Real-Time Status & Weather</h3>
                 <div id="status-content">
@@ -170,15 +202,18 @@
                 </div>
             </div>
 
+            <!-- Decoded Input -->
             <div class="card p-5">
                 <p class="text-lg font-extrabold text-indigo-700 mb-2">AI Decoded Needs:</p>
                 <div id="current-vulnerabilities" class="text-gray-500 italic text-base mb-4">Please use the "Your Situation" tab first.</div>
                 <p class="text-xs text-gray-500">Calculation based on location: <span id="routing-coords" class="font-mono text-gray-700">N/A</span></p>
             </div>
 
+            <!-- Results Section -->
             <div id="routing-results" class="space-y-4">
                 <div id="best-match-display" class="card p-5 text-center hidden bg-white border-2 border-indigo-400">
-                    </div>
+                    <!-- Best Match Result will be inserted here -->
+                </div>
 
                 <div class="flex justify-end">
                     <button id="save-routing-button" class="py-2 px-3 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-700" onclick="saveRoutingToJamAI()">Save routing to JamAI table (Test)</button>
@@ -187,18 +222,21 @@
 
                 <h3 class="text-xl font-bold text-gray-800 mt-6 border-b pb-2">PPS Suitability Analysis:</h3>
                 <div id="pps-list" class="space-y-4">
-                    </div>
+                    <!-- PPS cards will be inserted here -->
+                </div>
 
                 <p id="jamai-citation" class="text-xs text-gray-500 pt-4 border-t hidden">AI Reasoning provided by JamAI Base.</p>
             </div>
         </section>
 
+        <!-- Tab 3: QR Passport -->
         <section id="qr-passport" class="tab-content hidden space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">3. JKM Passport Creation</h2>
             <p class="text-base text-gray-600">Complete the details below to generate your **Zero-Typing QR Passport** for rapid registration.</p>
 
             <div id="save-status" class="p-3 text-sm rounded-lg font-medium hidden"></div>
 
+            <!-- JKM Passport Form -->
             <form id="family-form" class="space-y-4 card p-5">
                 <label class="block text-sm font-semibold text-gray-700">Head of Family Name</label>
                 <input type="text" id="headName" required class="mt-1 block w-full rounded-lg p-3 border">
@@ -222,6 +260,7 @@
                 </button>
             </form>
 
+            <!-- QR Code Output & Wallet Buttons -->
             <div id="qr-container" class="flex flex-col items-center justify-center card p-6 space-y-4">
                 <div id="qrcode-display" class="p-4 border-4 border-indigo-600 rounded-xl bg-white shadow-2xl">
                     <canvas id="qr-canvas" class="w-64 h-64 md:w-80 md:h-80"></canvas>
@@ -231,6 +270,7 @@
                     <button id="copy-payload-button" class="py-2 px-4 border rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 transition hidden" onclick="copyJKMPayload()">
                         Copy JKM Payload (Raw Text)
                     </button>
+                    <!-- PKPASS Button: Simulates sending an email with the server-generated pass -->
                     <button id="email-pkpass-button" class="py-2 px-4 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition hidden" disabled>
                         ✉️ Email Wallet Pass (.pkpass)
                     </button>
@@ -245,6 +285,7 @@
             </div>
         </section>
         
+        <!-- Tab 4: Rumour Killer (Grounded Q&A) -->
         <section id="rumour-killer" class="tab-content hidden space-y-4">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">4. Rumour Killer (Grounded Q&A)</h2>
             <p class="text-base text-gray-600">Verify information and get official safety guidance using real-time search.</p>
@@ -264,9 +305,9 @@
         </section>
     </main>
 
-    <script src="./config.js"></script>
+    <!-- JavaScript Logic -->
     <script>
-        // JamAI Base Configuration (loaded from ./config.js if present)
+        // JamAI Base Configuration (loaded from window properties)
         const JAMAI_PAT = window.JAMAI_PAT || "";
         const JAMAI_PROJECT_ID = window.JAMAI_PROJECT_ID || "";
         const JAMAI_API_URL = window.JAMAI_API_URL || null;
@@ -276,6 +317,7 @@
         const IP2LOCATION_URL_BASE = `https://api.ip2location.io/?key=${IP2LOCATION_KEY}`;
         const API_KEY = ""; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+        // CRITICAL: LLM_API_URL will now correctly use JAMAI_API_URL if it is set.
         const LLM_API_URL = JAMAI_API_URL || GEMINI_API_URL;
         
         let familyData = window.familyData || {};
@@ -284,7 +326,7 @@
         document.getElementById('uid-span').textContent = window.userId.substring(0, 8); // Abbreviated ID for aesthetics
 
 
-        // --- Location Functions (No change here) ---
+        // --- Location Functions ---
         function updateLocationUI() {
             const display = document.getElementById('current-location-display');
             const manualForm = document.getElementById('manual-location-form');
@@ -357,10 +399,6 @@
             display.classList.add('pulse-animation');
             display.innerHTML = 'Detecting location via GPS...';
 
-            // Improved flow:
-            // - If permission is 'granted', attempt GPS immediately
-            // - If permission is 'prompt', start IP fallback immediately while GPS prompt is pending
-            // - Keep retrying GPS in background and update UI if GPS becomes available later
             let gpsAttempt = null;
             let ipAttempt = null;
             let permissionStatus = null;
@@ -375,7 +413,6 @@
                 }
 
                 if (permissionStatus && permissionStatus.state === 'granted') {
-                    // Fast path: permission already granted
                     try {
                         await getGPSLocation();
                         updateLocationUI();
@@ -383,10 +420,8 @@
                     } catch (e) { console.warn('GPS attempt after granted failed', e); }
                 }
 
-                // Start IP fallback immediately so user sees something while GPS prompt may be shown
                 ipAttempt = getIPLocation();
 
-                // Start a background GPS attempt with retries (non-blocking)
                 gpsAttempt = (async () => {
                     const attempts = [3000, 5000, 8000];
                     for (const t of attempts) {
@@ -394,11 +429,9 @@
                             await new Promise((res, rej) => {
                                 navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: t });
                             });
-                            // If succeeded, call high-level getGPSLocation to set userLocation fields
                             await getGPSLocation();
                             return true;
                         } catch (err) {
-                            // Permission denied -> stop retrying
                             if (err && err.code === 1) {
                                 console.warn('User denied geolocation permission.');
                                 throw err;
@@ -410,7 +443,6 @@
                     return false;
                 })();
 
-                // If permissionStatus exists, listen for changes so we can immediately retry when user grants
                 if (permissionStatus && typeof permissionStatus.addEventListener === 'function') {
                     const onChange = async () => {
                         try {
@@ -426,7 +458,6 @@
                     try { permissionStatus.addEventListener('change', onChange); } catch (e) { try { permissionStatus.onchange = onChange; } catch(_){} }
                 }
 
-                // Use whichever resolves first: GPS success or IP fallback
                 let usedGPS = false;
                 try {
                     const winner = await Promise.race([gpsAttempt.catch(() => false), ipAttempt.catch(() => false)]);
@@ -448,18 +479,15 @@
                     return;
                 }
 
-                // If IP fallback succeeded, use that result
                 const ipOkNow = await ipAttempt.catch(() => false);
                 if (ipOkNow) {
                     updateLocationUI();
-                    // but keep gpsAttempt running in background; if it later succeeds, update UI
                     gpsAttempt.then((res) => {
                         if (res) updateLocationUI();
                     }).catch(() => {});
                     return;
                 }
 
-                // If neither produced a location, require manual input
                 userLocation.source = 'Manual Input Required';
                 userLocation.city = 'N/A';
                 userLocation.region = 'N/A';
@@ -625,8 +653,27 @@
                 
                 const payload1 = { contents: [{ parts: [{ text: decodingPrompt }] }], systemInstruction: { parts: [{ text: "You are a data decoder. Provide only a comma-separated list of standardized tags." }] } };
                 const jamaiHeaders = makeJamaiHeaders();
-                const response1 = await fetch(LLM_API_URL, { method: 'POST', headers: jamaiHeaders, body: JSON.stringify(payload1) });
-                const result1 = await response1.json();
+                
+                // Exponential backoff logic for retries
+                let response1, result1;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        response1 = await fetch(LLM_API_URL, { method: 'POST', headers: jamaiHeaders, body: JSON.stringify(payload1) });
+                        if (response1.ok) {
+                            result1 = await response1.json();
+                            break;
+                        } else {
+                            // If not OK, wait and retry (2s, 4s, 8s)
+                            await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                        }
+                    } catch (e) {
+                        // Network error, wait and retry
+                        await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                    }
+                }
+
+                if (!result1) throw new Error("LLM Decode failed after retries.");
+
                 const decodedText = result1.candidates?.[0]?.content?.parts?.[0]?.text || "";
                 
                 decodedVulnerabilities = decodedText.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
@@ -649,16 +696,30 @@
 
             const locationString = userLocation.source !== 'Manual Input Required' ? `${userLocation.city}, ${userLocation.region} (Lat: ${userLocation.lat.toFixed(4)}, Lon: ${userLocation.lon.toFixed(4)})` : userLocation.city;
             
-            // Status Check (No change)
+            // Status Check 
             const statusPrompt = `Provide a real-time update on the current weather, flood risk, and any active government evacuation orders for the location: ${locationString}. Provide a single, concise paragraph and assess the immediate danger level (Low/Medium/High).`;
             let statusResponseText = "Status check failed.";
             let statusCardClasses = 'bg-gray-100 border-gray-400';
 
             try {
                 const statusPayload = { contents: [{ parts: [{ text: statusPrompt }] }], tools: [{ "google_search": {} }], systemInstruction: { parts: [{ text: "You are an emergency status reporter providing only official, real-time Malaysian weather and alert data." }] } };
-                const statusResponse = await fetch(LLM_API_URL, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(statusPayload) });
-                if (statusResponse.ok) {
-                    const statusResult = await statusResponse.json();
+                
+                let statusResult;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const statusResponse = await fetch(LLM_API_URL, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(statusPayload) });
+                        if (statusResponse.ok) {
+                            statusResult = await statusResponse.json();
+                            break;
+                        } else {
+                            await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                        }
+                    } catch (e) {
+                        await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                    }
+                }
+
+                if (statusResult) {
                     statusResponseText = statusResult.candidates?.[0]?.content?.parts?.[0]?.text || statusResponseText;
                 }
                 
@@ -675,7 +736,6 @@
             // Routing Logic (UPDATED: Rely on JamAI RAG for PPS list)
             const systemPrompt = "You are an emergency management AI. Use the supplied SOP knowledge and **query the pps_knowledge table** to ground your recommendations (RAG). Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)).";
             
-            // PPS_DATA JSON removed from user query
             const userQuery = `User Needs: ${decodedVulnerabilities.join('; ')}. Location: ${locationString}. SOP: ${SOP_KNOWLEDGE}`;
             
             let bestMatchName = null;
@@ -684,8 +744,24 @@
 
             try {
                 const payload2 = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] } };
-                const response2 = await fetch(LLM_API_URL, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload2) });
-                const result2 = await response2.json();
+                
+                let result2;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const response2 = await fetch(LLM_API_URL, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload2) });
+                        if (response2.ok) {
+                            result2 = await response2.json();
+                            break;
+                        } else {
+                            await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                        }
+                    } catch (e) {
+                        await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                    }
+                }
+                
+                if (!result2) throw new Error("LLM Routing failed after retries.");
+
                 fullAnalysisText = result2.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
                 const lines = fullAnalysisText.trim().split('\n');
@@ -744,7 +820,7 @@
             }
         }
         
-        // --- Feature 3: QR Passport and PKPASS (Simulated) (No change here) ---
+        // --- Feature 3: QR Passport and PKPASS (Simulated) ---
 
         document.getElementById('family-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -839,7 +915,7 @@
             }
         });
 
-        // --- Feature 4: Rumour Killer (Grounded Q&A) (No change here) ---
+        // --- Feature 4: Rumour Killer (Grounded Q&A) ---
 
         document.getElementById('rumour-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -868,11 +944,23 @@
 
                 const payload = { contents: [{ parts: [{ text: query }] }], tools: [{ "google_search": {} }], systemInstruction: { parts: [{ text: systemPrompt }] } };
 
-                const response = await fetch(LLM_API_URL, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload) });
+                let result;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        const response = await fetch(LLM_API_URL, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload) });
+                        if (response.ok) {
+                            result = await response.json();
+                            break;
+                        } else {
+                            await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                        }
+                    } catch (e) {
+                        await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                    }
+                }
+                
+                if (!result) throw new Error("LLM Chat failed after retries.");
 
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-                const result = await response.json();
                 const candidate = result.candidates?.[0];
                 let text = "Sorry, I couldn't get a response from the network.";
                 let sources = [];
@@ -908,26 +996,25 @@
             }
         }
 
-        // --- JamAI Table Upload Helpers (SOP persistence as Action/Table) (No change) ---
+        // --- JamAI Table Upload Helpers (SOP persistence as Action/Table) ---
         async function uploadSOPToJamAITable() {
             const statusEl = document.getElementById('upload-sop-status');
             statusEl.textContent = 'Preparing upload...';
 
-            // Determine endpoint: prefer explicit `JAMAI_TABLE_API_URL`, else prefer the Add Rows path under `JAMAI_API_URL`.
-            // Add Rows canonical path: /api/v2/gen_tables/action/rows/add
-            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '')}/api/v2/gen_tables/action/rows/add` : null);
+            // Determine endpoint: use the explicit table URL if provided, otherwise derive from the API URL.
+            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].rstrip('/')}/api/v2/gen_tables/action/rows/add` : null);
 
             if (!tableApiUrl) {
-                statusEl.textContent = 'Set window.JAMAI_TABLE_API_URL or JAMAI_API_URL+PROJECT_ID in config.js';
+                statusEl.textContent = 'Set window.JAMAI_TABLE_API_URL or JAMAI_API_URL+PROJECT_ID.';
                 return { ok: false, error: 'Missing table API URL' };
             }
 
             if (!JAMAI_PAT) {
-                statusEl.textContent = 'Missing JAMAI_PAT in config.js';
+                statusEl.textContent = 'Missing JAMAI_PAT.';
                 return { ok: false, error: 'Missing PAT' };
             }
 
-            // Build payload for Add Rows API (preferred). If your deployment expects a different shape, adjust JAMAI_TABLE_API_URL.
+            // Build payload for Add Rows API 
             const payload = {
                 table_id: 'emergency_routing',
                 data: [
@@ -943,30 +1030,35 @@
                 concurrent: false
             };
 
-            try {
-                statusEl.textContent = 'Uploading SOP to JamAI...';
-                const res = await fetch(tableApiUrl, {
-                    method: 'POST',
-                    headers: makeJamaiHeaders(),
-                    body: JSON.stringify(payload)
-                });
+            let result;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    statusEl.textContent = 'Uploading SOP to JamAI...';
+                    const res = await fetch(tableApiUrl, {
+                        method: 'POST',
+                        headers: makeJamaiHeaders(),
+                        body: JSON.stringify(payload)
+                    });
 
-                let bodyText = '';
-                try { bodyText = await res.text(); } catch (e) { bodyText = '<unreadable response>'; }
-
-                if (!res.ok) {
-                    statusEl.textContent = `Upload failed: ${res.status}`;
-                    console.error('SOP upload failed', res.status, bodyText);
-                    return { ok: false, status: res.status, body: bodyText };
+                    if (res.ok) {
+                        result = { ok: true, status: res.status };
+                        break;
+                    } else {
+                        await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                    }
+                } catch (err) {
+                    await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
                 }
+            }
 
-                statusEl.textContent = 'SOP uploaded (response ok)';
-                console.log('SOP upload response:', bodyText);
-                return { ok: true, status: res.status, body: bodyText };
-            } catch (err) {
-                statusEl.textContent = 'Network error or invalid endpoint';
-                console.error('uploadSOPToJamAITable error', err);
-                return { ok: false, error: err.message || err };
+
+            if (result && result.ok) {
+                statusEl.textContent = 'SOP uploaded successfully.';
+                return result;
+            } else {
+                statusEl.textContent = `Upload failed (network/API error).`;
+                console.error('SOP upload failed after retries.');
+                return { ok: false, error: 'Failed after retries' };
             }
         }
 
@@ -982,26 +1074,27 @@
                 if (result.ok) {
                     statusEl.textContent = 'SOP upload success (check console for details)';
                 } else {
-                    statusEl.textContent = `Upload failed: ${result.status || result.error}`;
+                    statusEl.textContent = `Upload failed: ${result.error || 'Check console'}`;
                 }
-                console.log('runSOPTest result', result);
             } finally {
                 btn.disabled = false; btn.textContent = 'Upload SOP to JamAI (Test)';
             }
         }
 
-        // Post emergency routing rows to the JamAI table using the action-table schema (No major change)
+        // Post emergency routing rows to the JamAI table using the action-table schema
         async function postEmergencyRoutingRows(decodeRow, routeRow) {
             const statusEl = document.getElementById('save-routing-status');
             statusEl.textContent = 'Preparing to save routing...';
 
-            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '')}/v1/projects/${JAMAI_PROJECT_ID}/tables/emergency_routing/rows` : null);
+            // Determine endpoint: use the explicit table URL if provided
+            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].rstrip('/')}/api/v2/gen_tables/action/rows/add` : null);
+
             if (!tableApiUrl) {
-                statusEl.textContent = 'Configure JAMAI_TABLE_API_URL or JAMAI_API_URL+PROJECT_ID in config.js';
+                statusEl.textContent = 'Configure JAMAI_TABLE_API_URL or JAMAI_API_URL+PROJECT_ID.';
                 return { ok: false, error: 'missing_table_url' };
             }
-
-            // In real JamAI, we should target the Add Rows API for gen_tables
+            if (!JAMAI_PAT) return { ok: false, error: 'Missing PAT' };
+            
             const payload = { 
                 table_id: 'emergency_routing', 
                 data: [decodeRow, routeRow], 
@@ -1009,26 +1102,33 @@
                 concurrent: false 
             };
             
-            try {
-                statusEl.textContent = 'Saving rows to JamAI...';
-                const res = await fetch(tableApiUrl, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload) });
-                const bodyText = await res.text().catch(() => '<unreadable>');
-                if (!res.ok) {
-                    statusEl.textContent = `Save failed: ${res.status}`;
-                    console.error('postEmergencyRoutingRows failed', res.status, bodyText);
-                    return { ok: false, status: res.status, body: bodyText };
+            let result;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    statusEl.textContent = 'Saving rows to JamAI...';
+                    const res = await fetch(tableApiUrl, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload) });
+                    if (res.ok) {
+                        result = { ok: true, status: res.status };
+                        break;
+                    } else {
+                        await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
+                    }
+                } catch (err) {
+                    await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, attempt)));
                 }
-                statusEl.textContent = 'Saved routing rows (check console)';
-                console.log('postEmergencyRoutingRows response:', bodyText);
-                return { ok: true, status: res.status, body: bodyText };
-            } catch (err) {
-                statusEl.textContent = 'Network error saving routing';
-                console.error('postEmergencyRoutingRows error', err);
-                return { ok: false, error: err.message || err };
+            }
+
+            if (result && result.ok) {
+                statusEl.textContent = 'Saved routing rows.';
+                return result;
+            } else {
+                statusEl.textContent = `Save failed (network/API error).`;
+                console.error('postEmergencyRoutingRows failed after retries.');
+                return { ok: false, error: 'Failed after retries' };
             }
         }
 
-        // Called by the "Save routing to JamAI table" button. Will use latest familyData/last analysis where possible.
+        // Called by the "Save routing to JamAI table" button.
         async function saveRoutingToJamAI() {
             const btn = document.getElementById('save-routing-button');
             const statusEl = document.getElementById('save-routing-status');
@@ -1065,13 +1165,13 @@
 
                 const result = await postEmergencyRoutingRows(decodeRow, routeRow);
                 if (result.ok) statusEl.textContent = 'Routing saved successfully.';
-                else statusEl.textContent = `Save failed: ${result.status || result.error}`;
+                else statusEl.textContent = `Save failed: ${result.status || result.error || 'Check console'}`;
             } finally {
                 btn.disabled = false; btn.textContent = 'Save routing to JamAI table (Test)';
             }
         }
 
-        // --- Tab Management (No change) ---
+        // --- Tab Management ---
         function showTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
@@ -1082,7 +1182,7 @@
             if (tabId === 'qr-passport') updateQRCode();
         }
 
-        // --- Initialization (No change) ---
+        // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
             showTab('situation');
             getUserLocation();
