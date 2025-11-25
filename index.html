@@ -202,31 +202,39 @@
                 </div>
             </div>
 
-            <!-- Decoded Input -->
-            <div class="card p-5">
-                <p class="text-lg font-extrabold text-indigo-700 mb-2">AI Decoded Needs:</p>
-                <div id="current-vulnerabilities" class="text-gray-500 italic text-base mb-4">Please use the "Your Situation" tab first.</div>
-                <p class="text-xs text-gray-500">Calculation based on location: <span id="routing-coords" class="font-mono text-gray-700">N/A</span></p>
-            </div>
+<!-- Decoded Input -->
+<div class="card p-5">
+    <p class="text-lg font-extrabold text-indigo-700 mb-2">AI Decoded Needs:</p>
+    <div id="current-vulnerabilities" class="text-gray-500 italic text-base mb-4">
+        Awaiting JamAI decoding...
+    </div>
+    <p class="text-xs text-gray-500">Calculation based on location: 
+        <span id="routing-coords" class="font-mono text-gray-700">N/A</span>
+    </p>
+</div>
 
-            <!-- Results Section -->
-            <div id="routing-results" class="space-y-4">
-                <div id="best-match-display" class="card p-5 text-center hidden bg-white border-2 border-indigo-400">
-                    <!-- Best Match Result will be inserted here -->
-                </div>
+<!-- Results Section -->
+<div id="routing-results" class="space-y-4">
+    <div id="analysis-display" class="card p-5 bg-white border-2 border-indigo-400 hidden">
+        <!-- Analysis Text will be inserted here -->
+    </div>
 
-                <div class="flex justify-end">
-                    <button id="save-routing-button" class="py-2 px-3 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-700" onclick="saveRoutingToJamAI()">Save routing to JamAI table (Test)</button>
-                    <span id="save-routing-status" class="ml-3 text-xs text-gray-600"></span>
-                </div>
+    <div id="best-match-display" class="card p-5 text-center hidden bg-green-50 border-2 border-green-400">
+        <!-- Selected PPS will be inserted here -->
+    </div>
 
-                <h3 class="text-xl font-bold text-gray-800 mt-6 border-b pb-2">PPS Suitability Analysis:</h3>
-                <div id="pps-list" class="space-y-4">
-                    <!-- PPS cards will be inserted here -->
-                </div>
+    <div class="flex justify-end">
+        <button id="save-routing-button" class="py-2 px-3 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-700" onclick="saveRoutingToJamAI()">
+            Save routing to JamAI table (Test)
+        </button>
+        <span id="save-routing-status" class="ml-3 text-xs text-gray-600"></span>
+    </div>
 
-                <p id="jamai-citation" class="text-xs text-gray-500 pt-4 border-t hidden">AI Reasoning provided by JamAI Base.</p>
-            </div>
+    <p id="jamai-citation" class="text-xs text-gray-500 pt-4 border-t hidden">
+        AI Reasoning provided by JamAI Base (with PPS Knowledge RAG).
+    </p>
+</div>
+
         </section>
 
         <!-- Tab 3: QR Passport -->
@@ -537,60 +545,26 @@
         // Attempt to fetch `pps_knowledge` rows from JamAI as RAG context.
         // Tries several plausible action-table list/query endpoints and returns
         // a concatenated, human-readable text block suitable for prompt inclusion.
-        // If the API calls fail (or the table isn't present), falls back to local `PPS_DATA`.
+
         async function fetchPPSKnowledge() {
-            // Build candidate base for table action endpoints
-            const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].replace(/\/$/, '')}/api/v2/gen_tables/action` : null);
-            const headers = makeJamaiHeaders();
+    const tableApiUrl = window.JAMAI_TABLE_API_URL || (JAMAI_API_URL && JAMAI_PROJECT_ID ? `${JAMAI_API_URL.replace(/\/$/, '').split('/v1')[0].replace(/\/$/, '')}/api/v2/gen_tables/action` : null);
+    const headers = makeJamaiHeaders();
 
-            // Fallback: format local PPS_DATA if remote fetch fails
-            function formatLocal() {
-                return PPS_DATA.map(p => `- ${p.name} | lat:${p.lat} lon:${p.lon} | features: ${p.features} | constraints: ${p.constraints}`).join('\n');
-            }
+    if (!tableApiUrl) return "";
 
-            if (!tableApiUrl) return formatLocal();
-
-            // Candidate endpoints to try (in order)
-            const candidates = [
-                `${tableApiUrl}/rows/list`,
-                `${tableApiUrl}/rows/query`,
-                // some deployments have the full path under /api/v2/gen_tables/action/rows/list
-                (window.JAMAI_TABLE_API_URL ? window.JAMAI_TABLE_API_URL.replace(/\/rows\/add\/?$/, '/rows/list') : null)
-            ].filter(Boolean);
-
-            for (const url of candidates) {
-                try {
-                    // Try POST-based query with a small payload (many table endpoints accept this)
-                    const body = JSON.stringify({ table_id: 'pps_knowledge', limit: 200 });
-                    const resp = await fetch(url, { method: 'POST', headers, body });
-                    if (!resp.ok) continue;
-                    const j = await resp.json();
-
-                    // Look for rows in common shapes
-                    const rows = j.rows || j.result || j.data || j.items || null;
-                    if (!rows || !rows.length) continue;
-
-                    // Format rows into lines for prompt context
-                    const lines = rows.map(r => {
-                        // Try to normalize common column shapes
-                        const c = r.columns || r.cols || r.data || r;
-                        const name = c.name || c.title || c.id || c['name'] || (typeof r === 'string' ? r : 'unknown');
-                        const lat = c.lat || c.latitude || c.location?.lat || '';
-                        const lon = c.lon || c.longitude || c.location?.lon || '';
-                        const features = c.features || c.description || c.desc || '';
-                        const constraints = c.constraints || c.tags || '';
-                        return `- ${name} | lat:${lat} lon:${lon} | features:${features} | constraints:${constraints}`;
-                    });
-                    if (lines.length) return lines.join('\n');
-                } catch (e) {
-                    // ignore and try next candidate
-                    console.debug('fetchPPSKnowledge candidate failed', url, e);
-                }
-            }
-
-            // If nothing worked, return local fallback
-            return formatLocal();
+    try {
+        const url = `${tableApiUrl}/rows/list`;
+        const r = await fetch(url, { headers });
+        const data = await r.json();
+        if (data && data.rows) {
+            return data.rows.map(p => `- ${p.name} | lat:${p.lat} lon:${p.lon} | features: ${p.features} | capacity: ${p.capacity}`).join('\n');
         }
+    } catch (e) {
+        console.warn("pps_knowledge fetch failed", e);
+    }
+    return "";
+}
+
 
         function togglePkpassButton(data) {
             const btn = document.getElementById('email-pkpass-button');
@@ -649,11 +623,6 @@
         // --- Feature 1 & 2: Semantic Decoding & Routing (with RAG and Qwen3-VL) ---
         // PPS data is now stored in 'pps_knowledge' action table for RAG grounding
         // The list below is retained ONLY for displaying the analysis results in the UI.
-        const PPS_DATA = [
-            { 'id': 1, 'name': 'PPS North (Sekolah)', 'distance_km': 1.0, 'lat': 1.5000, 'lon': 103.7500, 'features': '2nd floor classrooms only, No lift, Limited parking', 'constraints': 'Cannot accommodate bedridden patients (stairs).'},
-            { 'id': 2, 'name': 'PPS Central (Dewan)', 'distance_km': 2.0, 'lat': 1.4800, 'lon': 103.7300, 'features': 'Ground floor access, Ample parking, Strict pet policy', 'constraints': "Strict 'No Animals' policy."},
-            { 'id': 3, 'name': 'PPS South (Kolej)', 'distance_km': 4.0, 'lat': 1.4500, 'lon': 103.7200, 'features': 'OKU toilets, Designated outdoor pet area, Ground floor halls', 'constraints': 'None relevant to standard needs.'}
-        ]; 
         
         // SOP Knowledge: Malaysian Flood Mitigation - concise grounding text for RAG (retained for reference)
         const SOP_KNOWLEDGE = `Standard Operating Procedures for Malaysian Flood Mitigation (summary):
@@ -794,16 +763,6 @@
             // Routing Logic (UPDATED: Rely on JamAI RAG for PPS list)
             const systemPrompt = "You are an emergency management AI. Use the supplied SOP knowledge and the PPS knowledge table (RAG) to ground recommendations. Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)).";
 
-            // Fetch pps_knowledge for RAG grounding (falls back to local PPS_DATA)
-            let ppsKnowledgeText = '';
-            try {
-                ppsKnowledgeText = await fetchPPSKnowledge();
-                // Truncate if excessively large to avoid hitting prompt limits
-                if (ppsKnowledgeText.length > 16000) ppsKnowledgeText = ppsKnowledgeText.slice(0, 16000) + '\n... (truncated)';
-            } catch (e) {
-                console.warn('Could not fetch pps_knowledge; falling back to local PPS_DATA', e);
-                ppsKnowledgeText = PPS_DATA.map(p => `- ${p.name} | features:${p.features} | constraints:${p.constraints}`).join('\n');
-            }
 
             const userQuery = `User Needs: ${decodedVulnerabilities.join('; ')}. Location: ${locationString}. SOP: ${SOP_KNOWLEDGE}\n\nPPS_KNOWLEDGE:\n${ppsKnowledgeText}`;
             
@@ -1245,47 +1204,41 @@
         }
 
         // Called by the "Save routing to JamAI table" button.
-        async function saveRoutingToJamAI() {
-            const btn = document.getElementById('save-routing-button');
-            const statusEl = document.getElementById('save-routing-status');
-            btn.disabled = true; btn.textContent = 'Saving...'; statusEl.textContent = '';
-
-            try {
-                // We will attempt to read current vulnerabilities and best match from the UI/state
-                const decoded = window.familyData?.vulnerabilities || [];
-                const semanticInput = document.getElementById('semantic-input')?.value || '';
-                const bestText = document.getElementById('best-match-display')?.textContent || '';
-                const bestMatch = bestText.match(/BEST MATCH: (.*)/i) ? bestText.match(/BEST MATCH: (.*)/i)[1] : (document.querySelector('#best-match-display p.text-4xl')?.textContent || null);
-
-                const timestamp = new Date().toISOString();
-
-                // PPS_DATA is included here for logging/auditing, even though it wasn't sent to the LLM for routing.
-                const decodeRow = {
-                    id: `decode-${Date.now()}`,
-                    action: 'decode_vulnerabilities',
-                    input: semanticInput || '(no input)',
-                    decoded_tags: decoded,
-                    pps_data: PPS_DATA, // Use local copy for logging/auditing context
-                    created_at: timestamp
-                };
-
-                const routeRow = {
-                    id: `route-${Date.now()}`,
-                    action: 'route_optimal_pps',
-                    input_tags: decoded,
-                    selected_pps: bestMatch || null,
-                    analysis_text: document.querySelector('#pps-list')?.innerText || '(no analysis)',
-                    pps_data: PPS_DATA, // Use local copy for logging/auditing context
-                    created_at: timestamp
-                };
-
-                const result = await postEmergencyRoutingRows(decodeRow, routeRow);
-                if (result.ok) statusEl.textContent = 'Routing saved successfully.';
-                else statusEl.textContent = `Save failed: ${result.status || result.error || 'Check console'}`;
-            } finally {
-                btn.disabled = false; btn.textContent = 'Save routing to JamAI table (Test)';
+       async function saveRoutingToJamAI() {
+    const url = window.JAMAI_TABLE_API_URL || JAMAI_API_URL + '/api/v2/gen_tables/action/rows/add';
+    const payload = {
+        table_id: "emergency_routing",
+        data: [
+            {
+                id: "row-" + Date.now(),
+                action: "decode_vulnerabilities",
+                input: document.getElementById('semantic-input').value,
+                created_at: new Date().toISOString()
             }
+        ],
+        stream: false,
+        concurrent: false
+    };
+
+    try {
+        const r = await fetch(url, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload) });
+        const data = await r.json();
+        document.getElementById('save-routing-status').textContent = "Saved!";
+        // Show decoded_tags, analysis_text, selected_pps
+        if (data.rows && data.rows[0]) {
+            const row = data.rows[0];
+            document.getElementById('current-vulnerabilities').textContent = row.decoded_tags || "N/A";
+            document.getElementById('analysis-display').classList.remove('hidden');
+            document.getElementById('analysis-display').textContent = row.analysis_text || "N/A";
+            document.getElementById('best-match-display').classList.remove('hidden');
+            document.getElementById('best-match-display').textContent = row.selected_pps || "N/A";
+            document.getElementById('jamai-citation').classList.remove('hidden');
         }
+    } catch (e) {
+        document.getElementById('save-routing-status').textContent = "Error saving.";
+        console.error(e);
+    }
+}
 
         // --- Tab Management ---
         function showTab(tabId) {
