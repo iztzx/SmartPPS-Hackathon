@@ -1,8 +1,8 @@
 from flask import Flask, request, jsonify
-from datetime import datetime
 from jamaibase import JamAI, types as p
 import os
-import sys # Import sys to force flush logs to Vercel console
+import sys
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -43,14 +43,20 @@ def analyze_route():
                     columns=["route_analysis", "selected_pps", "decoded_tags"]
                 )
                 
-                # 2. Extract the row data safely
-                # If it's a Pydantic object, .row might be a dict or object. 
-                # We handle both by trying to convert or access directly.
-                row_data = row_response.row
-                
-                # Helper function to handle Dict vs Object ambiguity
+                # FIX: Check if response is a dict or object
+                if isinstance(row_response, dict):
+                    row_data = row_response.get("row")
+                else:
+                    # Fallback if it is an object
+                    row_data = getattr(row_response, "row", None)
+
+                if not row_data:
+                    print("DEBUG: Row data is empty/None", file=sys.stderr)
+                    return jsonify({"success": False, "status": "pending"}), 200
+
+                # Helper function to safely get 'value' from a cell
                 def get_cell_val(data_row, key):
-                    # Step 1: Get the cell (Dict get or Object attribute)
+                    # 1. Get the cell (Dict get or Object attribute)
                     if isinstance(data_row, dict):
                         cell = data_row.get(key)
                     else:
@@ -58,8 +64,7 @@ def analyze_route():
                     
                     if not cell: return None
 
-                    # Step 2: Get the value inside the cell
-                    # JamAI cells are usually dicts like {'value': '...'} or objects with .value
+                    # 2. Get the value inside the cell
                     if isinstance(cell, dict):
                         return cell.get("value")
                     else:
@@ -90,12 +95,11 @@ def analyze_route():
                 }), 200
 
             except Exception as e:
-                # PRINT THE ACTUAL ERROR to Vercel logs
                 print(f"ERROR in polling loop: {e}", file=sys.stderr)
                 return jsonify({
                     "success": False, 
                     "status": "pending", 
-                    "error_details": str(e), # Send error to frontend for inspection
+                    "error_details": str(e),
                     "row_id": row_id_to_fetch
                 }), 200
 
@@ -104,13 +108,11 @@ def analyze_route():
         # =========================================================
         else:
             print("DEBUG: Submitting new job...", file=sys.stderr)
-            
-            # RESTORED: 'action' and 'created_at'
             row_data = {
-                "action": "find_safe_shelter",       # Tells JamAI which prompt/skill to use
+                "action": "find_safe_shelter",
                 "user_input": user_input,
                 "location_details": location_details,
-                "created_at": datetime.now().isoformat() # Timestamps the request
+                "created_at": datetime.now().isoformat()
             }
             
             add_request = p.MultiRowAddRequest(
@@ -124,10 +126,15 @@ def analyze_route():
                 request=add_request,
             )
             
-            if not completion.rows:
-                 return jsonify({"error": "Failed to submit job"}), 500
+            # Check if completion is a dict or object
+            if isinstance(completion, dict):
+                rows = completion.get("rows")
+                if not rows: return jsonify({"error": "Failed to submit job"}), 500
+                row_id = rows[0].get("row_id")
+            else:
+                if not completion.rows: return jsonify({"error": "Failed to submit job"}), 500
+                row_id = completion.rows[0].row_id
 
-            row_id = completion.rows[0].row_id
             print(f"DEBUG: Job Submitted. Row ID: {row_id}", file=sys.stderr)
 
             return jsonify({
