@@ -107,10 +107,6 @@
         <div class="max-w-4xl mx-auto text-sm text-yellow-800 font-medium text-center md:text-left">
             ⚠️ **Guest Mode:** All data is saved locally in your browser.
         </div>
-        <div class="max-w-4xl mx-auto text-sm text-yellow-800 font-medium text-center md:text-right mt-2">
-            <button id="upload-sop-button" class="ml-2 inline-flex items-center px-3 py-1.5 border border-transparent text-xs leading-4 font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700" onclick="alert('SOP Upload is a backend-only feature for this simplified demo.')" disabled>Upload SOP (Demo)</button>
-            <span id="upload-sop-status" class="ml-3 text-xs font-medium text-gray-700"></span>
-        </div>
     </div>
     
     <nav class="bg-white shadow-lg sticky top-0 z-10">
@@ -118,7 +114,7 @@
             <button class="tab-button active" onclick="showTab('situation')" id="tab-situation">1. Situation</button>
             <button class="tab-button" onclick="showTab('routing')" id="tab-routing">2. Intelligent Route</button>
             <button class="tab-button" onclick="showTab('qr-passport')" id="tab-qr-passport">3. QR Passport</button>
-            </div>
+        </div>
     </nav>
 
     <main class="flex-1 p-4 overflow-y-auto max-w-4xl mx-auto">
@@ -506,12 +502,12 @@ document.getElementById("semantic-form").addEventListener("submit", async (e) =>
         
         if (res.status === 202) {
              // Handle the "Analysis in progress. Please check back." response (timeout)
-             statusContentDiv.innerHTML = `<p class="text-sm whitespace-pre-wrap text-yellow-800">⚠️ Backend polling timed out. Analysis is still running. Row ID: ${data.row_id}. Try refreshing this page in a minute.</p>`;
+             statusContentDiv.innerHTML = `<p class="text-sm whitespace-pre-wrap text-yellow-800">Analysis Pending: The server received your request (Row ID: ${data.row_id}) and the AI analysis is running. This may take up to 30 seconds. Please check back or contact emergency services.</p>`;
              statusCard.classList.remove('bg-blue-100', 'border-blue-500');
              statusCard.classList.add('bg-yellow-100', 'border-yellow-500');
-             document.getElementById("analysis-display").textContent = "Analysis timed out. Please check back or contact emergency services.";
+             document.getElementById("analysis-display").textContent = "Analysis is still pending on the server. Please wait or try again shortly.";
              document.getElementById("best-match-display").innerHTML = `<p class="text-2xl font-extrabold text-yellow-700">Analysis Pending...</p>`;
-             routingStatus.textContent = "⚠️ Analysis timed out on server.";
+             routingStatus.textContent = "Analysis Pending: Processing request.";
              
         } else if (res.ok && data.success) {
             // SUCCESS (200 OK)

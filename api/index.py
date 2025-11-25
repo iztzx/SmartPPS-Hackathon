@@ -30,7 +30,6 @@ def analyze_route():
 
         # 2. Add Row to JamAI Action Table
         row_data = {
-            # Ensure your JamAI table setup uses these input columns
             "action": "find_safe_shelter",
             "user_input": user_input,
             "location_details": location_details,
@@ -56,7 +55,7 @@ def analyze_route():
 
         # 3. Poll for LLM Completion (RAG Analysis)
         attempts = 0
-        max_retries = 10
+        max_retries = 20  # <<< FIX: Increased polling attempts to 20 (30 seconds total wait)
         final_row = None
 
         while attempts < max_retries:
@@ -68,7 +67,7 @@ def analyze_route():
                 row_id
             )
             
-            # 💡 FIX: Check for the existence of the new 'selected_pps' column
+            # Check for the existence of the required columns
             if (row_response.get("row") and 
                 row_response["row"].get("route_analysis") and 
                 row_response["row"].get("selected_pps")):
@@ -87,7 +86,7 @@ def analyze_route():
             "success": True,
             "analysis": final_row.get("route_analysis"),
             "tags": final_row.get("decoded_tags"),
-            "selected_pps": final_row.get("selected_pps") # <<<< NEW COLUMN ADDED
+            "selected_pps": final_row.get("selected_pps")
         })
 
     except Exception as e:
