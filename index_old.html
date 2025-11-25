@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SafeRoute: Family-First Disaster Hub</title>
+    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load QR Code Generator -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <style>
         /* Import Inter font (Tailwind default) - kept for explicit confirmation */
@@ -61,6 +63,7 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
+    <!-- Local-only Storage and Compatibility Helpers -->
     <script>
         // --- FORCING GUEST MODE ---
         window.isGuest = true;
@@ -98,11 +101,13 @@
         };
     </script>
 
+    <!-- Header -->
     <header class="bg-indigo-700 text-white p-4 shadow-xl">
         <h1 class="text-2xl font-extrabold tracking-tight">SafeRoute: Disaster Hub</h1>
         <p id="user-id-display" class="text-xs opacity-70 mt-1">Guest ID: <span id="uid-span"></span></p>
     </header>
 
+    <!-- Guest Mode Banner -->
     <div id="guest-info" class="p-3 bg-yellow-50 border-b border-yellow-400">
         <div class="max-w-4xl mx-auto text-sm text-yellow-800 font-medium text-center md:text-left">
             ⚠️ **Guest Mode:** All data is saved locally in your browser.
@@ -113,6 +118,7 @@
         </div>
     </div>
     
+    <!-- Tab Navigation (Responsive: 2-col on mobile, 4-col on tablet/desktop) -->
     <nav class="bg-white shadow-lg sticky top-0 z-10">
         <div class="grid grid-cols-2 md:grid-cols-4 border-b border-gray-200">
             <button class="tab-button active" onclick="showTab('situation')" id="tab-situation">1. Situation</button>
@@ -122,8 +128,10 @@
         </div>
     </nav>
 
+    <!-- Main Content Area -->
     <main class="flex-1 p-4 overflow-y-auto max-w-4xl mx-auto">
 
+        <!-- Tab 1: Your Situation (Location & Semantic Input) -->
         <section id="situation" class="tab-content space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">1. Situation & Needs Assessment</h2>
             
@@ -131,12 +139,14 @@
                 **Phase 1:** Confirm your location and clearly describe your family's needs for safe routing.
             </p>
             
+            <!-- Step 1: Location & Status -->
             <div class="card p-5">
                 <h3 class="text-xl font-extrabold text-indigo-700 mb-3 flex items-center gap-2">📍 Confirm Location</h3>
                 
                 <div id="location-status-container">
                     <p id="current-location-display" class="text-base text-gray-700 font-semibold pulse-animation mb-4"></p>
                     
+                    <!-- Dynamic Manual Input Form (shown if GPS/IP fails) -->
                     <form id="manual-location-form" class="mt-4 border-t pt-4 hidden space-y-3">
                         <p class="text-sm font-bold text-red-600">❌ Auto-detection failed. Enter your location manually.</p>
                         <input type="text" id="manual-city-input" required placeholder="Enter City/Suburb (e.g., Segamat, Johor)" class="w-full rounded-lg border-gray-300 shadow-sm p-3 border">
@@ -145,6 +155,7 @@
                 </div>
             </div>
 
+            <!-- Step 2: Semantic Intent Input -->
             <div class="card p-5">
                 <h3 class="text-xl font-extrabold text-gray-800 mb-3">Describe Needs (Semantic Input)</h3>
                 <p class="text-sm text-gray-600 mb-4">Input your family's situation to decode specific needs (vulnerabilities).</p>
@@ -160,9 +171,11 @@
             </div>
         </section>
 
+        <!-- Tab 2: Intelligent Routing -->
         <section id="routing" class="tab-content hidden space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">2. Intelligent Routing Analysis</h2>
             
+            <!-- Local Status / Weather Results -->
             <div id="local-status-results-routing" class="card p-5 border-l-4 transition duration-300">
                 <h3 class="text-xl font-extrabold text-red-700 mb-3 flex items-center">🚨 Real-Time Status & Weather</h3>
                 <div id="status-content">
@@ -170,15 +183,18 @@
                 </div>
             </div>
 
+            <!-- Decoded Input -->
             <div class="card p-5">
                 <p class="text-lg font-extrabold text-indigo-700 mb-2">AI Decoded Needs:</p>
                 <div id="current-vulnerabilities" class="text-gray-500 italic text-base mb-4">Please use the "Your Situation" tab first.</div>
                 <p class="text-xs text-gray-500">Calculation based on location: <span id="routing-coords" class="font-mono text-gray-700">N/A</span></p>
             </div>
 
+            <!-- Results Section -->
             <div id="routing-results" class="space-y-4">
                 <div id="best-match-display" class="card p-5 text-center hidden bg-white border-2 border-indigo-400">
-                    </div>
+                    <!-- Best Match Result will be inserted here -->
+                </div>
 
                 <div class="flex justify-end">
                     <button id="save-routing-button" class="py-2 px-3 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-700" onclick="saveRoutingToJamAI()">Save routing to JamAI table (Test)</button>
@@ -187,18 +203,21 @@
 
                 <h3 class="text-xl font-bold text-gray-800 mt-6 border-b pb-2">PPS Suitability Analysis:</h3>
                 <div id="pps-list" class="space-y-4">
-                    </div>
+                    <!-- PPS cards will be inserted here -->
+                </div>
 
                 <p id="jamai-citation" class="text-xs text-gray-500 pt-4 border-t hidden">AI Reasoning provided by JamAI Base.</p>
             </div>
         </section>
 
+        <!-- Tab 3: QR Passport -->
         <section id="qr-passport" class="tab-content hidden space-y-6">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">3. JKM Passport Creation</h2>
             <p class="text-base text-gray-600">Complete the details below to generate your **Zero-Typing QR Passport** for rapid registration.</p>
 
             <div id="save-status" class="p-3 text-sm rounded-lg font-medium hidden"></div>
 
+            <!-- JKM Passport Form -->
             <form id="family-form" class="space-y-4 card p-5">
                 <label class="block text-sm font-semibold text-gray-700">Head of Family Name</label>
                 <input type="text" id="headName" required class="mt-1 block w-full rounded-lg p-3 border">
@@ -222,6 +241,7 @@
                 </button>
             </form>
 
+            <!-- QR Code Output & Wallet Buttons -->
             <div id="qr-container" class="flex flex-col items-center justify-center card p-6 space-y-4">
                 <div id="qrcode-display" class="p-4 border-4 border-indigo-600 rounded-xl bg-white shadow-2xl">
                     <canvas id="qr-canvas" class="w-64 h-64 md:w-80 md:h-80"></canvas>
@@ -231,6 +251,7 @@
                     <button id="copy-payload-button" class="py-2 px-4 border rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200 transition hidden" onclick="copyJKMPayload()">
                         Copy JKM Payload (Raw Text)
                     </button>
+                    <!-- PKPASS Button: Simulates sending an email with the server-generated pass -->
                     <button id="email-pkpass-button" class="py-2 px-4 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition hidden" disabled>
                         ✉️ Email Wallet Pass (.pkpass)
                     </button>
@@ -245,6 +266,7 @@
             </div>
         </section>
         
+        <!-- Tab 4: Rumour Killer (Grounded Q&A) -->
         <section id="rumour-killer" class="tab-content hidden space-y-4">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">4. Rumour Killer (Grounded Q&A)</h2>
             <p class="text-base text-gray-600">Verify information and get official safety guidance using real-time search.</p>
@@ -264,6 +286,7 @@
         </section>
     </main>
 
+    <!-- JavaScript Logic -->
     <script src="./config.js"></script>
     <script>
         // JamAI Base Configuration (loaded from ./config.js if present)
@@ -284,7 +307,7 @@
         document.getElementById('uid-span').textContent = window.userId.substring(0, 8); // Abbreviated ID for aesthetics
 
 
-        // --- Location Functions (No change here) ---
+        // --- Location Functions ---
         function updateLocationUI() {
             const display = document.getElementById('current-location-display');
             const manualForm = document.getElementById('manual-location-form');
@@ -562,14 +585,10 @@
 
         // --- Feature 1 & 2: Semantic Decoding & Routing (with RAG and Qwen3-VL) ---
         // PPS data is now stored in 'pps_knowledge' action table for RAG grounding
-        // The list below is retained ONLY for displaying the analysis results in the UI.
-        const PPS_DATA = [
-            { 'id': 1, 'name': 'PPS North (Sekolah)', 'distance_km': 1.0, 'lat': 1.5000, 'lon': 103.7500, 'features': '2nd floor classrooms only, No lift, Limited parking', 'constraints': 'Cannot accommodate bedridden patients (stairs).'},
-            { 'id': 2, 'name': 'PPS Central (Dewan)', 'distance_km': 2.0, 'lat': 1.4800, 'lon': 103.7300, 'features': 'Ground floor access, Ample parking, Strict pet policy', 'constraints': "Strict 'No Animals' policy."},
-            { 'id': 3, 'name': 'PPS South (Kolej)', 'distance_km': 4.0, 'lat': 1.4500, 'lon': 103.7200, 'features': 'OKU toilets, Designated outdoor pet area, Ground floor halls', 'constraints': 'None relevant to standard needs.'}
-        ]; 
+        // Workflow: user input -> decode_vulnerabilities (action table) -> route_optimal_pps (action table with RAG)
+        const PPS_DATA = []; // Fetched from pps_knowledge table at runtime
         
-        // SOP Knowledge: Malaysian Flood Mitigation - concise grounding text for RAG (retained for reference)
+        // SOP Knowledge: Malaysian Flood Mitigation - concise grounding text for RAG
         const SOP_KNOWLEDGE = `Standard Operating Procedures for Malaysian Flood Mitigation (summary):
     1) Monitor official weather and agensi kerajaan updates; follow evacuation orders immediately.
     2) Prioritise evacuation of vulnerable persons: elderly, bedridden, infants, pregnant women, and persons with disabilities (OKU).
@@ -649,7 +668,7 @@
 
             const locationString = userLocation.source !== 'Manual Input Required' ? `${userLocation.city}, ${userLocation.region} (Lat: ${userLocation.lat.toFixed(4)}, Lon: ${userLocation.lon.toFixed(4)})` : userLocation.city;
             
-            // Status Check (No change)
+            // Status Check
             const statusPrompt = `Provide a real-time update on the current weather, flood risk, and any active government evacuation orders for the location: ${locationString}. Provide a single, concise paragraph and assess the immediate danger level (Low/Medium/High).`;
             let statusResponseText = "Status check failed.";
             let statusCardClasses = 'bg-gray-100 border-gray-400';
@@ -672,11 +691,9 @@
             statusCard.classList.remove('bg-blue-100', 'border-blue-500');
             statusCard.classList.add(...statusCardClasses.split(' '));
             
-            // Routing Logic (UPDATED: Rely on JamAI RAG for PPS list)
-            const systemPrompt = "You are an emergency management AI. Use the supplied SOP knowledge and **query the pps_knowledge table** to ground your recommendations (RAG). Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)).";
-            
-            // PPS_DATA JSON removed from user query
-            const userQuery = `User Needs: ${decodedVulnerabilities.join('; ')}. Location: ${locationString}. SOP: ${SOP_KNOWLEDGE}`;
+            // Routing Logic
+            const systemPrompt = "You are an emergency management AI. Use the supplied SOP knowledge and the PPS list to ground your recommendations (RAG). Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)).";
+            const userQuery = `User Needs: ${decodedVulnerabilities.join('; ')}. Location: ${locationString}. PPS: ${JSON.stringify(PPS_DATA)}. SOP: ${SOP_KNOWLEDGE}`;
             
             let bestMatchName = null;
             let fullAnalysisText = "";
@@ -692,7 +709,6 @@
                 const lastLine = lines.find(line => line.toUpperCase().startsWith('BEST MATCH:'));
                 if (lastLine) { bestMatchName = lastLine.replace('BEST MATCH:', '').trim(); }
 
-                // Display analysis based on the local PPS list (for UI consistency)
                 const analysisSections = fullAnalysisText.split('Analyze PPS');
 
                 PPS_DATA.forEach((pps) => {
@@ -744,7 +760,7 @@
             }
         }
         
-        // --- Feature 3: QR Passport and PKPASS (Simulated) (No change here) ---
+        // --- Feature 3: QR Passport and PKPASS (Simulated) ---
 
         document.getElementById('family-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -839,7 +855,7 @@
             }
         });
 
-        // --- Feature 4: Rumour Killer (Grounded Q&A) (No change here) ---
+        // --- Feature 4: Rumour Killer (Grounded Q&A) ---
 
         document.getElementById('rumour-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -908,7 +924,7 @@
             }
         }
 
-        // --- JamAI Table Upload Helpers (SOP persistence as Action/Table) (No change) ---
+        // --- JamAI Table Upload Helpers (SOP persistence as Action/Table) ---
         async function uploadSOPToJamAITable() {
             const statusEl = document.getElementById('upload-sop-status');
             statusEl.textContent = 'Preparing upload...';
@@ -990,7 +1006,7 @@
             }
         }
 
-        // Post emergency routing rows to the JamAI table using the action-table schema (No major change)
+        // Post emergency routing rows to the JamAI table using the action-table schema
         async function postEmergencyRoutingRows(decodeRow, routeRow) {
             const statusEl = document.getElementById('save-routing-status');
             statusEl.textContent = 'Preparing to save routing...';
@@ -1001,14 +1017,7 @@
                 return { ok: false, error: 'missing_table_url' };
             }
 
-            // In real JamAI, we should target the Add Rows API for gen_tables
-            const payload = { 
-                table_id: 'emergency_routing', 
-                data: [decodeRow, routeRow], 
-                stream: false, 
-                concurrent: false 
-            };
-            
+            const payload = { rows: [decodeRow, routeRow] };
             try {
                 statusEl.textContent = 'Saving rows to JamAI...';
                 const res = await fetch(tableApiUrl, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload) });
@@ -1043,13 +1052,12 @@
 
                 const timestamp = new Date().toISOString();
 
-                // PPS_DATA is included here for logging/auditing, even though it wasn't sent to the LLM for routing.
                 const decodeRow = {
                     id: `decode-${Date.now()}`,
                     action: 'decode_vulnerabilities',
                     input: semanticInput || '(no input)',
                     decoded_tags: decoded,
-                    pps_data: PPS_DATA, // Use local copy for logging/auditing context
+                    pps_data: PPS_DATA,
                     created_at: timestamp
                 };
 
@@ -1059,7 +1067,7 @@
                     input_tags: decoded,
                     selected_pps: bestMatch || null,
                     analysis_text: document.querySelector('#pps-list')?.innerText || '(no analysis)',
-                    pps_data: PPS_DATA, // Use local copy for logging/auditing context
+                    pps_data: PPS_DATA,
                     created_at: timestamp
                 };
 
@@ -1071,7 +1079,7 @@
             }
         }
 
-        // --- Tab Management (No change) ---
+        // --- Tab Management ---
         function showTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
@@ -1082,7 +1090,7 @@
             if (tabId === 'qr-passport') updateQRCode();
         }
 
-        // --- Initialization (No change) ---
+        // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
             showTab('situation');
             getUserLocation();
