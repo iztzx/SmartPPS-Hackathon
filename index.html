@@ -1187,47 +1187,36 @@
 
         // Called by the "Save routing to JamAI table" button.
 async function saveRoutingToJamAI() {
-    const url = window.JAMAI_TABLE_API_URL || JAMAI_API_URL.replace(/\/v1.*$/, '') + '/api/v2/gen_tables/action/rows/add';
-    const payload = {
-        table_id: "emergency_routing",
-        data: [
-            {
-                id: "row-" + Date.now(),
-                input: document.getElementById('semantic-input').value,
-                created_at: new Date().toISOString()
-            }
-        ],
-        stream: true,   // ✅ stream completions back
-        concurrent: false
-    };
-
-    try {
-        const r = await fetch(url, {
-            method: 'POST',
-            headers: makeJamaiHeaders(),
-            body: JSON.stringify(payload)
-        });
-        const data = await r.json();
-        document.getElementById('save-routing-status').textContent = "Saved!";
-
-        if (data.rows && data.rows[0]) {
-            const row = data.rows[0];
-            // Show decoded_tags
-            document.getElementById('current-vulnerabilities').textContent = row.decoded_tags || "N/A";
-            // Show analysis_text
-            document.getElementById('analysis-display').classList.remove('hidden');
-            document.getElementById('analysis-display').textContent = row.analysis_text || "N/A";
-            // Show selected_pps
-            document.getElementById('best-match-display').classList.remove('hidden');
-            document.getElementById('best-match-display').textContent = row.selected_pps || "N/A";
-            // Show citation
-            document.getElementById('jamai-citation').classList.remove('hidden');
-        }
-    } catch (e) {
-        document.getElementById('save-routing-status').textContent = "Error saving.";
-        console.error(e);
+  const payload = {
+    tableName: "pps_routing", // or whatever table you want
+    input: {
+      location: userLocation,
+      familyData: window.familyData
+    },
+    output: {
+      bestRoute: document.getElementById("best-match-display").innerText,
+      analysis: document.getElementById("analysis-display").innerText
     }
+  };
+
+  try {
+    const res = await fetch("/api/jamai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    document.getElementById("save-routing-status").textContent =
+      "✅ Saved to JamAI Action Table!";
+    console.log("JamAI response:", data);
+  } catch (err) {
+    document.getElementById("save-routing-status").textContent =
+      "❌ Failed to save.";
+    console.error(err);
+  }
 }
+
 
 
         // --- Tab Management ---
