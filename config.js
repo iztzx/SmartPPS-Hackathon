@@ -1,9 +1,13 @@
 // config.js
 
-window.JAMAI_PAT = "jamai_pat_2e78e7a9f44d66ca4726d3520eb04477d7c02260745203df"; 
+window.JAMAI_PAT = process.env.JAMAI_PAT || "";
+window.JAMAI_PROJECT_ID = process.env.JAMAI_PROJECT_ID || "";
 
-window.JAMAI_PROJECT_ID = "proj_b4b113dc379b88886dc8e437"; 
+// The base API URL for JamAI
+window.JAMAI_API_URL = process.env.JAMAI_API_URL || "https://api.jamaibase.com"; 
 
-window.JAMAI_API_URL = 'https://api.jamaibase.com'; 
-
-window.JAMAI_TABLE_API_URL = 'https://api.jamaibase.com/api/v2/gen_tables/action/rows/add';
+// For local testing
+/*
+window.JAMAI_PAT = "YOUR_JAMAI_PAT_HERE";
+window.JAMAI_PROJECT_ID = "YOUR_JAMAI_PROJECT_ID_HERE";
+*/
