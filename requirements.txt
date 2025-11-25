@@ -1,12 +1,13 @@
 # Web framework
-flask==3.0.3
+flask>=3.0,<4.0
 
-# JamAI SDK
-jamaibase==0.1.7
+# JamAI SDK (pick any released version >=0.4.0, <2.0)
+jamaibase
+# Production WSGI server
+gunicorn>=20.0,<24.0
 
-# Utilities
-gunicorn==23.0.0   # Production WSGI server for Vercel
-requests==2.32.3   # HTTP client (used internally by SDK)
+# HTTP client
+requests>=2.31,<3.0
 
-# Optional: if you want CORS support for local dev
-flask-cors==5.0.0
+# Optional: CORS support for local dev
+flask-cors>=4.0,<6.0
