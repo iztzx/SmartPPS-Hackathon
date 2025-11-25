@@ -5,7 +5,7 @@ import urllib.request
 import urllib.error
 
 # Environment Variables (Set these in Vercel Dashboard)
-JAMAI_API_URL = os.environ.get("JAMAI_API_URL", "https://api.jamaibase.com/api/v1/gen_tables/action")
+JAMAI_API_BASE = os.environ.get("JAMAI_API_BASE", "https://api.jamaibase.com/api")
 JAMAI_PROJECT_ID = os.environ.get("JAMAI_PROJECT_ID", "")
 JAMAI_PAT = os.environ.get("JAMAI_PAT", "")
 JAMAI_TABLE_ID = os.environ.get("JAMAI_TABLE_ID", "emergency_routing")
@@ -37,7 +37,7 @@ class handler(BaseHTTPRequestHandler):
         """Enable CORS for frontend requests"""
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Project-ID')
     
     def do_OPTIONS(self):
         """Handle preflight CORS requests"""
@@ -148,29 +148,31 @@ End with: BEST MATCH: [PPS Name]"""
             self._send_error_response(500, f"Server error: {str(e)}")
     
     def _get_routing_history(self):
-        """Retrieve routing history from JamAI"""
+        """Retrieve routing history from JamAI using list_table_rows"""
         try:
             if not JAMAI_PAT or not JAMAI_PROJECT_ID:
                 self._send_error_response(400, "JamAI not configured")
                 return
             
-            # Fetch from JamAI
-            url = f"{JAMAI_API_URL}/rows/list"
-            headers = {
-                'Authorization': f'Bearer {JAMAI_PAT}',
-                'X-Project-Id': JAMAI_PROJECT_ID,
-                'Content-Type': 'application/json'
-            }
+            # Use correct endpoint: /v1/gen_tables/action/rows
+            url = f"{JAMAI_API_BASE}/v1/gen_tables/action/rows"
             
+            # Build request params according to API docs
             params = {
                 'table_id': JAMAI_TABLE_ID,
-                'limit': 10,
-                'offset': 0
+                'offset': 0,
+                'limit': 10
             }
             
             # Build URL with params
             query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
             full_url = f"{url}?{query_string}"
+            
+            headers = {
+                'Authorization': f'Bearer {JAMAI_PAT}',
+                'X-PROJECT-ID': JAMAI_PROJECT_ID,  # Correct header name
+                'Accept': 'application/json'
+            }
             
             req = urllib.request.Request(full_url, headers=headers, method='GET')
             
@@ -183,6 +185,9 @@ End with: BEST MATCH: [PPS Name]"""
             self.end_headers()
             self.wfile.write(json.dumps(result).encode('utf-8'))
             
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8') if e.fp else str(e)
+            self._send_error_response(e.code, f"JamAI API Error: {error_body}")
         except Exception as e:
             self._send_error_response(500, f"Failed to retrieve history: {str(e)}")
     
@@ -204,22 +209,23 @@ End with: BEST MATCH: [PPS Name]"""
             raise
     
     def _call_jamai_llm(self, prompt, system_instruction):
-        """Call JamAI Base LLM"""
-        url = f"{JAMAI_API_URL}/chat/completions"
+        """Call JamAI Base LLM using /v1/chat/completions"""
+        url = f"{JAMAI_API_BASE}/v1/chat/completions"
         
         payload = {
-            "model": "gemini/gemini-2.0-flash-exp",
+            "model": "",  # Use supported model
             "messages": [
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 1000
+            "max_tokens": 1000,
+            "stream": False
         }
         
         headers = {
             'Authorization': f'Bearer {JAMAI_PAT}',
-            'X-Project-Id': JAMAI_PROJECT_ID,
+            'X-PROJECT-ID': JAMAI_PROJECT_ID,  # Correct header
             'Content-Type': 'application/json'
         }
         
@@ -263,27 +269,28 @@ End with: BEST MATCH: [PPS Name]"""
         return result['candidates'][0]['content']['parts'][0]['text']
     
     def _store_in_jamai(self, data):
-        """Store routing data in JamAI action table"""
+        """Store routing data in JamAI action table using add_table_rows"""
         try:
-            url = f"{JAMAI_API_URL}/rows/add"
+            # Correct endpoint: /v1/gen_tables/action/rows/add
+            url = f"{JAMAI_API_BASE}/v1/gen_tables/action/rows/add"
             
+            # Build payload according to API docs schema
             payload = {
                 "table_id": JAMAI_TABLE_ID,
                 "data": [{
-                    "action": "routing_request",
                     "user_input": data['user_input'],
                     "location_details": data['location'],
                     "decoded_tags": data['decoded_tags'],
-                    "analysis": data['analysis'],
-                    "selected_pps": data['selected_pps'],
-                    "created_at": self._get_timestamp()
+                    "route_analysis": data['analysis'],
+                    "selected_pps": data['selected_pps']
                 }],
-                "stream": False
+                "stream": False,
+                "concurrent": False
             }
             
             headers = {
                 'Authorization': f'Bearer {JAMAI_PAT}',
-                'X-Project-Id': JAMAI_PROJECT_ID,
+                'X-PROJECT-ID': JAMAI_PROJECT_ID,  # Correct header
                 'Content-Type': 'application/json'
             }
             
@@ -295,8 +302,11 @@ End with: BEST MATCH: [PPS Name]"""
             )
             
             with urllib.request.urlopen(req, timeout=30) as response:
-                print(f"Stored in JamAI: {response.status}")
+                print(f"Stored in JamAI: HTTP {response.status}")
                 
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8') if e.fp else str(e)
+            print(f"Warning: Failed to store in JamAI (HTTP {e.code}): {error_body}")
         except Exception as e:
             print(f"Warning: Failed to store in JamAI: {str(e)}")
             # Don't fail the request if storage fails
