@@ -1,4 +1,12 @@
-fastapi
-uvicorn
-jamaibase
-pydantic
+# Web framework
+flask==3.0.3
+
+# JamAI SDK
+jamaibase==0.1.7
+
+# Utilities
+gunicorn==23.0.0   # Production WSGI server for Vercel
+requests==2.32.3   # HTTP client (used internally by SDK)
+
+# Optional: if you want CORS support for local dev
+flask-cors==5.0.0
