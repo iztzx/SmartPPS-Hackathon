@@ -2,3 +2,4 @@ flask
 jamaibase
 python-dotenv
 pycountry
+fastapi
