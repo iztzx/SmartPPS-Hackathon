@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from jamaibase import JamAI, protocol as p
+from jamaibase import JamAI, types as p # <<<< FINAL FIX HERE
 import os
 import time
 from datetime import datetime
@@ -13,7 +13,6 @@ API_KEY = os.getenv("JAMAI_PAT")
 TABLE_ID = os.getenv("ACTION_TABLE_ID")
 
 # Initialize JamAI Client
-# FIX: Arguments are 'project_id' and 'token'. 'base_url' is omitted.
 jamai = JamAI(
     project_id=PROJECT_ID, 
     token=API_KEY 
@@ -37,8 +36,8 @@ def analyze_route():
             "created_at": datetime.now().isoformat()
         }
         
-        # FIX: Uses p.RowAddRequest and p.TableType.ACTION
-        add_request = p.RowAddRequest(
+        # Uses p.MultiRowAddRequest (replaces deprecated RowAddRequest)
+        add_request = p.MultiRowAddRequest(
             table_id=TABLE_ID,
             data=[row_data],
             stream=False,
@@ -61,16 +60,11 @@ def analyze_route():
 
         while attempts < max_retries:
             
-            # FIX: Changed p.RowGetRequest to p.RowReadRequest
-            read_request = p.RowReadRequest( 
-                table_id=TABLE_ID,
-                row_id=row_id
-            )
-
-            # Fetch the specific row to check if LLM has finished
+            # get_table_row uses positional arguments (table_type, table_id, row_id)
             row_response = jamai.table.get_table_row(
-                table_type=p.TableType.ACTION,
-                request=read_request,
+                p.TableType.ACTION,
+                TABLE_ID,
+                row_id
             )
             
             # Check if the LLM output column is not null/empty
