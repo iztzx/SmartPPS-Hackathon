@@ -402,42 +402,60 @@
             };
 
             try {
-                const res = await fetch("/api/jamai/create", {
+                // 1. Call the Python Backend
+                const res = await fetch("/api/index", { // Points to api/index.py
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
                 });
 
+                // 2. Safety Check: Is it actually JSON?
+                const contentType = res.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    const text = await res.text();
+                    console.error("Server Error (HTML):", text); 
+                    throw new Error("Server returned an error page. Check Vercel logs.");
+                }
+
+                // 3. Parse JSON
                 const data = await res.json();
                 
+                if (data.error) {
+                    throw new Error(data.message);
+                }
+                
+                // 4. Update UI with JamAI Data
                 if (data.jamai_status === "success" && data.output) {
                     const output = data.output;
                     
-                    // Update decoded tags
-                    const decodedTags = output.decoded_tags.split(',').map(t => t.trim()).filter(Boolean);
-                    window.saveFamilyData({ vulnerabilities: decodedTags.length > 0 ? decodedTags : ['N/A Pax'] });
+                    // Handle tags
+                    // Fix: JamAI might return a string like '["Tag1", "Tag2"]' or just "Tag1, Tag2"
+                    let decodedTags = output.decoded_tags;
+                    if (typeof decodedTags === 'string') {
+                         decodedTags = decodedTags.replace(/[\[\]"]/g, '').split(',').filter(t => t.trim().length > 0);
+                    }
                     
-                    // Update UI
+                    window.saveFamilyData({ vulnerabilities: decodedTags });
+                    
                     document.getElementById("current-vulnerabilities").innerHTML = 
-                        `<span class="font-bold text-indigo-700">${(decodedTags.length > 0 ? decodedTags : ['N/A Pax']).join('; ')}</span>`;
+                        `<span class="font-bold text-indigo-700">${decodedTags.join(', ') || 'Standard Needs'}</span>`;
                     
-                    document.getElementById("analysis-display").textContent = output.analysis_text || "No detailed analysis provided.";
+                    document.getElementById("analysis-display").innerText = output.analysis_text;
                     document.getElementById("best-match-display").innerHTML = `
                         <p class="text-2xl font-extrabold text-green-700">Best Match Found!</p>
                         <p class="text-4xl font-extrabold text-indigo-700 my-2">${output.selected_pps || 'Unknown PPS'}</p>
-                        <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
+                        <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab.</p>
                     `;
                     
                     document.getElementById("jamai-citation").classList.remove("hidden");
-                } else {
-                    document.getElementById("analysis-display").textContent = data.message || "An unexpected error occurred.";
-                }
+                } 
 
             } catch (error) {
-                console.error("Routing API Call Error:", error);
-                document.getElementById("analysis-display").textContent = `Error: ${error.message}`;
+                console.error("Routing Error:", error);
+                document.getElementById("analysis-display").textContent = `System Error: ${error.message}`;
+                document.getElementById("analysis-display").classList.remove("hidden");
                 document.getElementById("best-match-display").innerHTML = 
-                    `<p class="text-lg font-bold text-red-600">Routing Failed</p>`;
+                    `<p class="text-lg font-bold text-red-600">Connection Failed</p>`;
             } finally {
                 button.disabled = false;
                 button.classList.remove('opacity-50');

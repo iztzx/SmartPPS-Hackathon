@@ -1,332 +1,96 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import os
-import urllib.request
-import urllib.error
+from jamaibase import JamAI, types as t
 
-# Environment Variables (Set these in Vercel Dashboard)
-JAMAI_API_BASE = os.environ.get("JAMAI_API_BASE", "https://api.jamaibase.com/api")
+# --- CONFIGURATION ---
+# Ensure these are set in your Vercel Project Settings
 JAMAI_PROJECT_ID = os.environ.get("JAMAI_PROJECT_ID", "")
 JAMAI_PAT = os.environ.get("JAMAI_PAT", "")
 JAMAI_TABLE_ID = os.environ.get("JAMAI_TABLE_ID", "emergency_routing")
 
-# Fallback LLM (Gemini) if JamAI is not configured
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={GEMINI_API_KEY}"
-
-# Knowledge Base
-SOP_KNOWLEDGE = """Standard Operating Procedures for Malaysian Flood Mitigation:
-1) Monitor official weather updates; follow evacuation orders immediately.
-2) Prioritise vulnerable persons: elderly, bedridden, infants, pregnant women, OKU.
-3) Pets: declare at registration; some PPS allow pets in designated areas.
-4) Bring ICs, medications, bedding, water, basic food.
-5) Maintain hygiene: masks, soap, sanitizer.
-6) Register at PPS counter, obtain family token/QR.
-7) Do not re-enter flooded areas until declared safe."""
-
-PPS_KNOWLEDGE = """Available Relief Centers (PPS):
-- PPS North (Sekolah): OKU ramp, pet-friendly, capacity 500, medical post
-- PPS South (Dewan): Small capacity 100, ground floor accessible
-- PPS West (Masjid): Large capacity 400, food distribution
-- PPS East (Church): Medium capacity 200, OKU access, elderly focus"""
-
-
 class handler(BaseHTTPRequestHandler):
     
-    def _set_cors_headers(self):
-        """Enable CORS for frontend requests"""
+    def _set_headers(self, status=200):
+        self.send_response(status)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Project-ID')
-    
-    def do_OPTIONS(self):
-        """Handle preflight CORS requests"""
-        self.send_response(200)
-        self._set_cors_headers()
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Content-Type', 'application/json')
         self.end_headers()
-    
+
+    def do_OPTIONS(self):
+        self._set_headers()
+
     def do_POST(self):
-        """Handle routing analysis requests"""
-        if self.path == '/api/jamai/create':
-            return self._create_routing()
-        
-        self.send_error(404, "Endpoint not found")
-    
-    def do_GET(self):
-        """Handle data retrieval requests"""
-        if self.path == '/api/jamai/get':
-            return self._get_routing_history()
-        
-        self.send_error(404, "Endpoint not found")
-    
-    def _create_routing(self):
-        """Process semantic input and generate routing recommendations"""
         try:
-            # Parse request body
+            # 1. Parse Frontend Input
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length)
             data = json.loads(body.decode('utf-8'))
             
-            # Extract inputs
-            user_input = data.get('input', {})
-            description = user_input.get('description', '')
-            location = user_input.get('location', {})
-            family_data = user_input.get('familyData', {})
+            user_input_data = data.get('input', {})
+            description = user_input_data.get('description', '')
+            location = user_input_data.get('location', {})
             
-            location_str = f"{location.get('city', 'Unknown')}, {location.get('region', 'Malaysia')} (Lat: {location.get('lat', 0):.4f}, Lon: {location.get('lon', 0):.4f})"
-            
-            # Step 1: Decode semantic input into structured tags
-            decode_prompt = f"""Analyze this emergency situation and extract vulnerabilities as comma-separated tags.
-Mandatory: Family size (e.g., "5 Pax")
-Optional: "Warga Emas/Bedridden", "Pet/Cat", "Wheelchair User (OKU)", "Dietary Restrictions"
+            # Format location for the AI
+            location_str = f"{location.get('city', 'Unknown')}, {location.get('region', 'Malaysia')}"
 
-User Input: "{description}"
+            # 2. Initialize JamAI SDK
+            jamai = JamAI(project_id=JAMAI_PROJECT_ID, token=JAMAI_PAT)
 
-Output ONLY the tags, nothing else."""
-
-            decoded_tags = self._call_llm(decode_prompt, "You extract structured tags only.")
-            
-            # Step 2: Intelligent routing with RAG context
-            routing_prompt = f"""You are an emergency management AI. Analyze and recommend the BEST relief center.
-
-USER NEEDS: {decoded_tags}
-LOCATION: {location_str}
-
-{SOP_KNOWLEDGE}
-
-{PPS_KNOWLEDGE}
-
-Provide:
-1. Brief analysis of each PPS suitability
-2. Clear recommendation
-
-End with: BEST MATCH: [PPS Name]"""
-
-            analysis = self._call_llm(routing_prompt, "You are an emergency routing specialist.")
-            
-            # Extract best match
-            best_match = "Unknown PPS"
-            for line in analysis.split('\n'):
-                if line.upper().startswith('BEST MATCH:'):
-                    best_match = line.split(':', 1)[1].strip()
-                    analysis = analysis.replace(line, '').strip()
-                    break
-            
-            # Build response
-            response_data = {
-                "jamai_status": "success",
-                "message": "Routing analysis completed",
-                "output": {
-                    "decoded_tags": decoded_tags,
-                    "analysis_text": analysis,
-                    "selected_pps": best_match
-                },
-                "metadata": {
-                    "location": location_str,
-                    "timestamp": self._get_timestamp()
-                }
-            }
-            
-            # Store in JamAI if configured
-            if JAMAI_PAT and JAMAI_PROJECT_ID:
-                self._store_in_jamai({
-                    "user_input": description,
-                    "location": location_str,
-                    "decoded_tags": decoded_tags,
-                    "analysis": analysis,
-                    "selected_pps": best_match
-                })
-            
-            # Send response
-            self.send_response(200)
-            self._set_cors_headers()
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(response_data).encode('utf-8'))
-            
-        except Exception as e:
-            self._send_error_response(500, f"Server error: {str(e)}")
-    
-    def _get_routing_history(self):
-        """Retrieve routing history from JamAI using list_table_rows"""
-        try:
-            if not JAMAI_PAT or not JAMAI_PROJECT_ID:
-                self._send_error_response(400, "JamAI not configured")
-                return
-            
-            # Use correct endpoint: /v1/gen_tables/action/rows
-            url = f"{JAMAI_API_BASE}/v1/gen_tables/action/rows"
-            
-            # Build request params according to API docs
-            params = {
-                'table_id': JAMAI_TABLE_ID,
-                'offset': 0,
-                'limit': 10
-            }
-            
-            # Build URL with params
-            query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-            full_url = f"{url}?{query_string}"
-            
-            headers = {
-                'Authorization': f'Bearer {JAMAI_PAT}',
-                'X-PROJECT-ID': JAMAI_PROJECT_ID,  # Correct header name
-                'Accept': 'application/json'
-            }
-            
-            req = urllib.request.Request(full_url, headers=headers, method='GET')
-            
-            with urllib.request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode('utf-8'))
-            
-            self.send_response(200)
-            self._set_cors_headers()
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode('utf-8'))
-            
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode('utf-8') if e.fp else str(e)
-            self._send_error_response(e.code, f"JamAI API Error: {error_body}")
-        except Exception as e:
-            self._send_error_response(500, f"Failed to retrieve history: {str(e)}")
-    
-    def _call_llm(self, prompt, system_instruction):
-        """Call LLM API (JamAI or Gemini fallback)"""
-        try:
-            # Try JamAI first if configured
-            if JAMAI_PAT and JAMAI_PROJECT_ID:
-                return self._call_jamai_llm(prompt, system_instruction)
-            
-            # Fallback to Gemini
-            if GEMINI_API_KEY:
-                return self._call_gemini_llm(prompt, system_instruction)
-            
-            raise Exception("No LLM API configured (set JAMAI_PAT or GEMINI_API_KEY)")
-            
-        except Exception as e:
-            print(f"LLM call failed: {str(e)}")
-            raise
-    
-    def _call_jamai_llm(self, prompt, system_instruction):
-        """Call JamAI Base LLM using /v1/chat/completions"""
-        url = f"{JAMAI_API_BASE}/v1/chat/completions"
-        
-        payload = {
-            "model": "",  # Use supported model
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.7,
-            "max_tokens": 1000,
-            "stream": False
-        }
-        
-        headers = {
-            'Authorization': f'Bearer {JAMAI_PAT}',
-            'X-PROJECT-ID': JAMAI_PROJECT_ID,  # Correct header
-            'Content-Type': 'application/json'
-        }
-        
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers=headers,
-            method='POST'
-        )
-        
-        with urllib.request.urlopen(req, timeout=60) as response:
-            result = json.loads(response.read().decode('utf-8'))
-        
-        return result['choices'][0]['message']['content']
-    
-    def _call_gemini_llm(self, prompt, system_instruction):
-        """Fallback to Gemini API"""
-        payload = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }],
-            "systemInstruction": {
-                "parts": [{"text": system_instruction}]
-            },
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 1000
-            }
-        }
-        
-        req = urllib.request.Request(
-            GEMINI_API_URL,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
-            method='POST'
-        )
-        
-        with urllib.request.urlopen(req, timeout=60) as response:
-            result = json.loads(response.read().decode('utf-8'))
-        
-        return result['candidates'][0]['content']['parts'][0]['text']
-    
-    def _store_in_jamai(self, data):
-        """Store routing data in JamAI action table using add_table_rows"""
-        try:
-            # Correct endpoint: /v1/gen_tables/action/rows/add
-            url = f"{JAMAI_API_BASE}/v1/gen_tables/action/rows/add"
-            
-            # Build payload according to API docs schema
-            payload = {
-                "table_id": JAMAI_TABLE_ID,
-                "data": [{
-                    "user_input": data['user_input'],
-                    "location_details": data['location'],
-                    "decoded_tags": data['decoded_tags'],
-                    "route_analysis": data['analysis'],
-                    "selected_pps": data['selected_pps']
-                }],
-                "stream": False,
-                "concurrent": False
-            }
-            
-            headers = {
-                'Authorization': f'Bearer {JAMAI_PAT}',
-                'X-PROJECT-ID': JAMAI_PROJECT_ID,  # Correct header
-                'Content-Type': 'application/json'
-            }
-            
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode('utf-8'),
-                headers=headers,
-                method='POST'
+            # 3. Add Row to Action Table
+            # This triggers the LLM columns (decoded_tags, route_analysis) to generate automatically.
+            completion = jamai.table.add_table_rows(
+                table_type=t.TableType.ACTION,
+                request=t.RowAddRequest(
+                    table_id=JAMAI_TABLE_ID,
+                    data=[{
+                        "user_input": description,
+                        "location_details": location_str
+                    }],
+                    stream=False, # We want the full result at once
+                    concurrent=True
+                )
             )
-            
-            with urllib.request.urlopen(req, timeout=30) as response:
-                print(f"Stored in JamAI: HTTP {response.status}")
+
+            # 4. Extract Results from SDK Response
+            if completion.rows:
+                row_data = completion.rows[0].columns
                 
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode('utf-8') if e.fp else str(e)
-            print(f"Warning: Failed to store in JamAI (HTTP {e.code}): {error_body}")
+                # Helper to safely get text content from a column
+                def get_col_text(col_id):
+                    col = row_data.get(col_id)
+                    return col.text if col else "N/A"
+
+                decoded_tags = get_col_text("decoded_tags")
+                analysis_text = get_col_text("route_analysis")
+                
+                # Extract PPS name from analysis (assuming standard format)
+                selected_pps = "Check Analysis"
+                if "BEST MATCH:" in analysis_text:
+                    selected_pps = analysis_text.split("BEST MATCH:")[1].split("\n")[0].strip("* ")
+
+                response_payload = {
+                    "jamai_status": "success",
+                    "output": {
+                        "decoded_tags": decoded_tags,
+                        "analysis_text": analysis_text,
+                        "selected_pps": selected_pps
+                    }
+                }
+            else:
+                raise Exception("No rows returned from JamAI")
+
+            self._set_headers(200)
+            self.wfile.write(json.dumps(response_payload).encode('utf-8'))
+
         except Exception as e:
-            print(f"Warning: Failed to store in JamAI: {str(e)}")
-            # Don't fail the request if storage fails
-    
-    def _send_error_response(self, code, message):
-        """Send JSON error response"""
-        self.send_response(code)
-        self._set_cors_headers()
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        
-        error_data = {
-            "error": True,
-            "message": message,
-            "jamai_status": "error"
-        }
-        
-        self.wfile.write(json.dumps(error_data).encode('utf-8'))
-    
-    def _get_timestamp(self):
-        """Get current ISO timestamp"""
-        from datetime import datetime
-        return datetime.utcnow().isoformat() + 'Z'
+            # Catch all errors to prevent HTML leakage
+            print(f"Error: {str(e)}")
+            self._set_headers(500)
+            self.wfile.write(json.dumps({
+                "error": True, 
+                "message": f"Server Error: {str(e)}",
+                "jamai_status": "error"
+            }).encode('utf-8'))
