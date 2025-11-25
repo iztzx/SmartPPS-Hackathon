@@ -1204,34 +1204,41 @@
         }
 
         // Called by the "Save routing to JamAI table" button.
-       async function saveRoutingToJamAI() {
-    const url = window.JAMAI_TABLE_API_URL || JAMAI_API_URL + '/api/v2/gen_tables/action/rows/add';
+async function saveRoutingToJamAI() {
+    const url = window.JAMAI_TABLE_API_URL || JAMAI_API_URL.replace(/\/v1.*$/, '') + '/api/v2/gen_tables/action/rows/add';
     const payload = {
         table_id: "emergency_routing",
         data: [
             {
                 id: "row-" + Date.now(),
-                action: "decode_vulnerabilities",
                 input: document.getElementById('semantic-input').value,
                 created_at: new Date().toISOString()
             }
         ],
-        stream: false,
+        stream: true,       // ✅ stream completions back
         concurrent: false
     };
 
     try {
-        const r = await fetch(url, { method: 'POST', headers: makeJamaiHeaders(), body: JSON.stringify(payload) });
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: makeJamaiHeaders(),
+            body: JSON.stringify(payload)
+        });
         const data = await r.json();
         document.getElementById('save-routing-status').textContent = "Saved!";
-        // Show decoded_tags, analysis_text, selected_pps
+
         if (data.rows && data.rows[0]) {
             const row = data.rows[0];
+            // Show decoded_tags
             document.getElementById('current-vulnerabilities').textContent = row.decoded_tags || "N/A";
+            // Show analysis_text
             document.getElementById('analysis-display').classList.remove('hidden');
             document.getElementById('analysis-display').textContent = row.analysis_text || "N/A";
+            // Show selected_pps
             document.getElementById('best-match-display').classList.remove('hidden');
             document.getElementById('best-match-display').textContent = row.selected_pps || "N/A";
+            // Show citation
             document.getElementById('jamai-citation').classList.remove('hidden');
         }
     } catch (e) {

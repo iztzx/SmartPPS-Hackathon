@@ -115,17 +115,16 @@ def add_rows_test():
         "data": [
             {
                 "id": f"test-{int(time.time())}",
-                "action": "decode_vulnerabilities",
-                "input": "2 adults, 1 infant, small pet cat, no mobility issues",
+                "input": "4 people, one elderly who can't walk, and a pet cat",
                 "created_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
         ],
-        "stream": False,
+        "stream": True,      # ✅ stream completions back immediately
         "concurrent": False
     }
     print('Posting Add-Rows test to', url)
     try:
-        r = requests.post(url, headers=HEADERS, json=payload, timeout=30)
+        r = requests.post(url, headers=HEADERS, json=payload, timeout=60)
         print('Status:', r.status_code)
         try:
             print('JSON:', json.dumps(r.json(), indent=2))
