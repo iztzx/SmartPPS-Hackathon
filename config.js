@@ -1,26 +1,19 @@
-// Small runtime config file for JamAI credentials and non-sensitive defaults.
-// WARNING: Do NOT commit production secrets to a public repo. This file is intended
-// for local development or private deployments only.
+// config.js
 
-// JamAI Base Personal Access Token (PAT)
-window.JAMAI_PAT = "jamai_pat_2e78e7a9f44d66ca4726d3520eb04477d7c02260745203df";
+// Replace these placeholders with your actual JamAI Base credentials and endpoints.
 
-// 3. CRITICAL: JamAI LLM Inference API URL
-// NOTE: This must point to the endpoint that accepts the {contents, systemInstruction} payload.
+// 1. CRITICAL: JamAI Personal Access Token (PAT)
+window.JAMAI_PAT = "mypat"; 
+
+// 2. CRITICAL: JamAI Project ID
+window.JAMAI_PROJECT_ID = "proj_b4b113dc379b88886dc8e437"; 
+
+// 3. CRITICAL FIX: JamAI LLM Inference API URL
+// This endpoint must be the full path to your LLM model's generation endpoint.
+// Example uses a common format:
 window.JAMAI_API_URL = 'https://api.jamaibase.com/v1/generate/content'; 
 
-// 4. RECOMMENDED: JamAI Table API URL (Used for logging and SOP upload)
-// NOTE: Set this to the preferred Add Rows endpoint for generative tables.
+// 4. RECOMMENDED: JamAI Table API URL
+// This is used by the Python script and the HTML upload/logging button to add rows.
+// Use the full Add Rows endpoint for generative/action tables.
 window.JAMAI_TABLE_API_URL = 'https://api.jamaibase.com/api/v2/gen_tables/action/rows/add';
-
-// By default, disable Supabase-backed auth and remote writes so the app works
-// immediately without any login. Set to `true` to enable Supabase behavior.
-window.ENABLE_SUPABASE = false;
-
-// If you prefer the app to start in authenticated mode with Supabase enabled,
-// set `window.ENABLE_SUPABASE = true` and provide SUPABASE_URL/KEY via safe injection.
-
-// You may also add other client-side defaults here if needed.
-
-// To keep secrets safe in production, provide these values via a secure server-side
-// endpoint or environment injection rather than embedding them in a static file.
