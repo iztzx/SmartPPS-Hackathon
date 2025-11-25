@@ -3,7 +3,6 @@ from jamaibase import JamAI, protocol as p
 import os
 import time
 from datetime import datetime
-# Removed unused import: uuid
 
 app = Flask(__name__)
 
@@ -14,7 +13,7 @@ API_KEY = os.getenv("JAMAI_PAT")
 TABLE_ID = os.getenv("ACTION_TABLE_ID")
 
 # Initialize JamAI Client
-# FIX 1: Arguments are 'project_id' and 'token'. 'base_url' is omitted.
+# FIX: Arguments are 'project_id' and 'token'. 'base_url' is omitted.
 jamai = JamAI(
     project_id=PROJECT_ID, 
     token=API_KEY 
@@ -30,7 +29,7 @@ def analyze_route():
         if not user_input:
             return jsonify({"error": "User input is required"}), 400
 
-        # 2. Prepare Data for Insertion
+        # 2. Add Row to JamAI Action Table
         row_data = {
             "action": "find_safe_shelter",
             "user_input": user_input,
@@ -38,16 +37,14 @@ def analyze_route():
             "created_at": datetime.now().isoformat()
         }
         
-        # FIX 2: Create the RowAddRequest object required by add_table_rows
+        # FIX: Uses p.RowAddRequest and p.TableType.ACTION
         add_request = p.RowAddRequest(
             table_id=TABLE_ID,
             data=[row_data],
-            stream=False, # Use non-streaming API
+            stream=False,
         )
 
-        # Using the SDK to add the row
         completion = jamai.table.add_table_rows(
-            # FIX 3: TableType is uppercase. Pass request object as keyword arg.
             table_type=p.TableType.ACTION,
             request=add_request,
         )
@@ -64,8 +61,8 @@ def analyze_route():
 
         while attempts < max_retries:
             
-            # FIX 4: Create the RowGetRequest object required by get_table_row
-            get_request = p.RowGetRequest(
+            # FIX: Changed p.RowGetRequest to p.RowReadRequest
+            read_request = p.RowReadRequest( 
                 table_id=TABLE_ID,
                 row_id=row_id
             )
@@ -73,7 +70,7 @@ def analyze_route():
             # Fetch the specific row to check if LLM has finished
             row_response = jamai.table.get_table_row(
                 table_type=p.TableType.ACTION,
-                request=get_request,
+                request=read_request,
             )
             
             # Check if the LLM output column is not null/empty
@@ -81,7 +78,7 @@ def analyze_route():
                 final_row = row_response.row
                 break
             
-            time.sleep(1.5) # Wait 1.5 seconds before retry
+            time.sleep(1.5)
             attempts += 1
 
         if not final_row:
@@ -95,7 +92,6 @@ def analyze_route():
         })
 
     except Exception as e:
-        # Provide more detailed error logging to Vercel logs if possible
         print(f"FATAL ERROR in analyze_route: {e}")
         return jsonify({"error": str(e)}), 500
 
