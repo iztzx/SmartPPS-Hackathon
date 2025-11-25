@@ -62,28 +62,10 @@
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
-
+<script src="config.js"></script>
     <!-- Configuration for JamAI Base (CRITICAL FIX) -->
     <script>
-        // NOTE: REPLACE THESE PLACEHOLDERS with your actual JamAI values
-        // If these are incorrect or incomplete, the decoding/routing WILL FAIL.
-
-        // 1. CRITICAL: JamAI Personal Access Token (PAT)
-        window.JAMAI_PAT = "mypat"; 
-
-        // 2. CRITICAL: JamAI Project ID
-        window.JAMAI_PROJECT_ID = "myid"; 
-
-        // 3. CRITICAL FIX: JamAI LLM Inference API URL
-        // Must point to the endpoint that accepts the {contents, systemInstruction} payload.
-        // Example uses a common format:
-        window.JAMAI_API_URL = 'https://api.jamaibase.com/v1/generate/content'; 
-
-        // 4. RECOMMENDED: JamAI Table API URL for Add Rows
-        // Used for logging and SOP upload (emergency_routing table).
-        window.JAMAI_TABLE_API_URL = 'https://api.jamaibase.com/api/v2/gen_tables/action/rows/add';
-
-
+      
         // --- FORCING GUEST MODE ---
         window.isGuest = true;
         const GUEST_ID_KEY = 'smartpps_guest_id';
