@@ -1,232 +1,322 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import os
-import requests
+import urllib.request
+import urllib.error
 
-# --- Configuration (Set these in your Vercel/JamAI environment variables) ---
-# Ensure these environment variables are set in Vercel:
-# JAMAI_API_URL, JAMAI_PROJECT_ID, JAMAI_PAT
-JAMAI_API_URL = os.environ.get("JAMAI_API_URL", "https://api.jamaibase.com/v1/projects")
-JAMAI_PROJECT_ID = os.environ.get("JAMAI_PROJECT_ID")
-JAMAI_PAT = os.environ.get("JAMAI_PAT")
-# The name of the action table in JamAI for storing the routing history
-JAMAI_TABLE_ID = "emergency_routing"
+# Environment Variables (Set these in Vercel Dashboard)
+JAMAI_API_URL = os.environ.get("JAMAI_API_URL", "https://api.jamaibase.com/api/v1/gen_tables/action")
+JAMAI_PROJECT_ID = os.environ.get("JAMAI_PROJECT_ID", "")
+JAMAI_PAT = os.environ.get("JAMAI_PAT", "")
+JAMAI_TABLE_ID = os.environ.get("JAMAI_TABLE_ID", "emergency_routing")
 
-# Standard SOP Knowledge for RAG (grounding the LLM)
-SOP_KNOWLEDGE = """Standard Operating Procedures for Malaysian Flood Mitigation (summary):
-1) Monitor official weather and agensi kerajaan updates; follow evacuation orders immediately.
-2) Prioritise evacuation of vulnerable persons: elderly, bedridden, infants, pregnant women, and persons with disabilities (OKU).
-3) Pets: declare animals at registration; some PPS allow pets in designated areas—bring carriers and food.
-4) Bring essential documents (ICs), medications, minimal bedding, drinking water, and basic food; label items with head of family name.
-5) Hygiene: bring face masks, soap, hand sanitizer, and maintain distancing where possible.
-6) Sanitation: use provided toilets; report sanitary issues to PPS officer.
-7) Electrical safety: avoid floodwaters, do not use electrical appliances in water; generators must be outdoors with safe ventilation.
-8) Medical emergencies: inform PPS medical teams immediately; register special needs on arrival for priority assistance.
-9) Registration: register at the PPS counter, obtain family token/QR, comply with volunteer instructions.
-10) Communication: keep phones charged, use designated family contact points, and do not re-enter flooded areas until declared safe."""
+# Fallback LLM (Gemini) if JamAI is not configured
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={GEMINI_API_KEY}"
 
-# Mock PPS Knowledge (This should ideally be fetched from a JamAI table using RAG,
-# but for this simple serverless function, it's embedded as text context)
-PPS_KNOWLEDGE_TEXT = """
-PPS_KNOWLEDGE (Active Centers):
-- PPS North (Sekolah) | lat:3.15 lon:101.68 | features: OKU ramp, pet-friendly area, large capacity (500), temporary medical post | capacity: 500
-- PPS South (Dewan Komuniti) | lat:3.12 lon:101.72 | features: Small capacity (100), no pet-friendly area, accessible ground floor | capacity: 100
-- PPS West (Masjid Besar) | lat:3.13 lon:101.65 | features: Large capacity (400), no specific OKU facilities, food distribution point | capacity: 400
-- PPS East (Church Hall) | lat:3.16 lon:101.70 | features: Medium capacity (200), OKU access, elderly focus | capacity: 200
-"""
+# Knowledge Base
+SOP_KNOWLEDGE = """Standard Operating Procedures for Malaysian Flood Mitigation:
+1) Monitor official weather updates; follow evacuation orders immediately.
+2) Prioritise vulnerable persons: elderly, bedridden, infants, pregnant women, OKU.
+3) Pets: declare at registration; some PPS allow pets in designated areas.
+4) Bring ICs, medications, bedding, water, basic food.
+5) Maintain hygiene: masks, soap, sanitizer.
+6) Register at PPS counter, obtain family token/QR.
+7) Do not re-enter flooded areas until declared safe."""
+
+PPS_KNOWLEDGE = """Available Relief Centers (PPS):
+- PPS North (Sekolah): OKU ramp, pet-friendly, capacity 500, medical post
+- PPS South (Dewan): Small capacity 100, ground floor accessible
+- PPS West (Masjid): Large capacity 400, food distribution
+- PPS East (Church): Medium capacity 200, OKU access, elderly focus"""
+
 
 class handler(BaseHTTPRequestHandler):
     
+    def _set_cors_headers(self):
+        """Enable CORS for frontend requests"""
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+    
+    def do_OPTIONS(self):
+        """Handle preflight CORS requests"""
+        self.send_response(200)
+        self._set_cors_headers()
+        self.end_headers()
+    
     def do_POST(self):
-        """Handles POST request to create a new routing entry and trigger LLM processing."""
-        # Vercel's path structure is /api/jamai, so the check needs to be for the file location
+        """Handle routing analysis requests"""
         if self.path == '/api/jamai/create':
-            return self._create_routing_entry()
-        self.send_error(404)
-
+            return self._create_routing()
+        
+        self.send_error(404, "Endpoint not found")
+    
     def do_GET(self):
-        """Handles GET request to fetch the latest routing entry."""
+        """Handle data retrieval requests"""
         if self.path == '/api/jamai/get':
-            return self._get_latest_routing_entry()
-        self.send_error(404)
-
-    def _get_headers(self):
-        """Utility to generate required JamAI headers."""
-        if not JAMAI_PAT or not JAMAI_PROJECT_ID:
-            raise EnvironmentError("JAMAI_PAT or JAMAI_PROJECT_ID is not set in environment variables.")
-
-        return {
-            'Authorization': f'Bearer {JAMAI_PAT}',
-            'X-Project-Id': JAMAI_PROJECT_ID,
-            'Content-Type': 'application/json',
-        }
-
-    def _create_routing_entry(self):
-        """
-        Processes user input, calls the LLM via JamAI (using Add Rows with columns),
-        and stores the result in the 'emergency_routing' table.
-        """
+            return self._get_routing_history()
+        
+        self.send_error(404, "Endpoint not found")
+    
+    def _create_routing(self):
+        """Process semantic input and generate routing recommendations"""
         try:
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            payload = json.loads(post_data)
-        except Exception as e:
-            self.send_error(400, f"Invalid JSON payload: {str(e)}")
-            return
-        
-        # 1. Prepare Inputs
-        location = payload.get('input', {}).get('location', {})
-        description = payload.get('input', {}).get('description', '')
-        
-        # Ensure floats are used for formatting, default to 0.0 if missing
-        lat = location.get('lat', 0.0)
-        lon = location.get('lon', 0.0)
-        
-        location_string = f"{location.get('city', 'N/A')}, {location.get('region', 'N/A')} (Lat: {lat:.4f}, Lon: {lon:.4f})"
-
-        # System Instruction for LLM
-        system_prompt_decode = "You are a data decoder. Analyze the following emergency situation. Extract and list the distinct vulnerabilities, special needs, and key family details relevant to a relief center (PPS). Output ONLY a comma-separated list of structured keywords. Mandatory keywords: Family size (e.g., '5 Pax'). If no other vulnerability is mentioned, only output the 'X Pax' tag. Other keywords: 'Warga Emas/Bedridden', 'Pet/Cat', 'Wheelchair User (OKU)', 'Dietary Restrictions'. Do not include any other text."
-        
-        system_prompt_route = "You are an emergency management AI. Use the supplied SOP knowledge and the PPS knowledge table (RAG) to ground recommendations. Analyze user vulnerabilities and available PPS to select the single, best-suited center. Provide a concise Chain-of-Thought explaining acceptance/rejection based on user needs and SOPs. Finally, output the name of the BEST MATCH in its own, single line at the end (e.g., BEST MATCH: PPS North (Sekolah)). Do not include any other text after 'BEST MATCH'."
-        
-        # User Query combining all context for the routing step
-        # Note: The prompt_dependencies feature in JamAI will substitute <PLACEHOLDER_FOR_DECODED_TAGS>
-        # during the server-side LLM call chain.
-        routing_query = f"""User Needs: <PLACEHOLDER_FOR_DECODED_TAGS>. 
-Location: {location_string}. 
-SOP: {SOP_KNOWLEDGE}
-{PPS_KNOWLEDGE_TEXT}
-"""
-        
-        # Determine the base URL for the Add Rows API
-        api_base = JAMAI_API_URL.split('/v1')[0].strip('/')
-        table_api_url = f"{api_base}/api/v2/gen_tables/action/rows/add"
-        
-        # 2. Prepare the `add_rows` API payload with completions
-        api_payload = {
-            "table_id": JAMAI_TABLE_ID,
-            "data": [{
-                "action": "routing_request",
-                "user_input": description,
-                "location_details": location_string,
-                "created_at": requests.utils.default_headers().get('Date', ''),
-            }],
-            "completion_columns": {
-                # Column 1: Semantic Decoding
-                "decoded_tags": {
-                    "model": "",
-                    "prompt": description,
-                    "system_instruction": system_prompt_decode,
-                },
-                # Column 2: Intelligent Routing (Chain of two LLM steps)
-                "route_analysis": {
-                    "model": "",
-                    "prompt": routing_query,
-                    "system_instruction": system_prompt_route,
-                    "prompt_dependencies": {
-                        # Use the result of 'decoded_tags' to populate the placeholder
-                        # The placeholders should match the original prompt structure
-                        "decoded_tags": "User Needs: {decoded_tags}. Location: {location_details}. SOP: {SOP_KNOWLEDGE}\n\n{PPS_KNOWLEDGE_TEXT}"
-                    },
-                    "context_data": {
-                        # Pass SOP and PPS text as context data for the second completion step
-                        "SOP_KNOWLEDGE": SOP_KNOWLEDGE,
-                        "PPS_KNOWLEDGE_TEXT": PPS_KNOWLEDGE_TEXT
-                    }
-                }
-            },
-            "stream": False,
-            "concurrent": False
-        }
-        
-        # 3. Call JamAI
-        try:
-            headers = self._get_headers()
-            response = requests.post(table_api_url, headers=headers, json=api_payload, timeout=60)
+            # Parse request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body.decode('utf-8'))
             
-            if response.status_code == 200:
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                
-                # Parse the response to extract the LLM output
-                response_json = response.json()
-                rows = response_json.get('rows', [])
-                output = {}
-                
-                if rows:
-                    cols = rows[0].get('columns', {})
-                    
-                    # Extract Decoded Tags
-                    decoded_tags_comp = cols.get('decoded_tags', {})
-                    decoded_tags_text = decoded_tags_comp.get('choices', [{}])[0].get('message', {}).get('content', '') or \
-                                        decoded_tags_comp.get('choices', [{}])[0].get('text', '') 
-                    
-                    # Extract Route Analysis and Best Match
-                    route_analysis_comp = cols.get('route_analysis', {})
-                    analysis_text = route_analysis_comp.get('choices', [{}])[0].get('message', {}).get('content', '') or \
-                                    route_analysis_comp.get('choices', [{}])[0].get('text', '')
-                    
-                    best_match = ""
-                    # The prompt ensures BEST MATCH: is the last line
-                    if analysis_text:
-                        # Find the last line that starts with "BEST MATCH:" (case-insensitive)
-                        last_line = [line.strip() for line in analysis_text.split('\n') if line.strip().upper().startswith("BEST MATCH:")][-1]
-                        best_match = last_line.replace("BEST MATCH:", "").strip()
-                        analysis_text = analysis_text.replace(last_line, "").strip() # Remove best match from analysis text
+            # Extract inputs
+            user_input = data.get('input', {})
+            description = user_input.get('description', '')
+            location = user_input.get('location', {})
+            family_data = user_input.get('familyData', {})
+            
+            location_str = f"{location.get('city', 'Unknown')}, {location.get('region', 'Malaysia')} (Lat: {location.get('lat', 0):.4f}, Lon: {location.get('lon', 0):.4f})"
+            
+            # Step 1: Decode semantic input into structured tags
+            decode_prompt = f"""Analyze this emergency situation and extract vulnerabilities as comma-separated tags.
+Mandatory: Family size (e.g., "5 Pax")
+Optional: "Warga Emas/Bedridden", "Pet/Cat", "Wheelchair User (OKU)", "Dietary Restrictions"
 
-                    output = {
-                        "decoded_tags": decoded_tags_text,
-                        "analysis_text": analysis_text,
-                        "selected_pps": best_match
-                    }
-                
-                # Return the processed LLM output to the frontend
-                self.wfile.write(json.dumps({
-                    "message": "Routing entry created and processed successfully.",
-                    "jamai_status": "success",
-                    "output": output
-                }).encode('utf-8'))
-                
-            else:
-                self.send_error(response.status_code, f"JamAI API Error: {response.text}")
-                
-        except EnvironmentError as e:
-            self.send_error(500, f"Configuration Error: {str(e)}")
+User Input: "{description}"
+
+Output ONLY the tags, nothing else."""
+
+            decoded_tags = self._call_llm(decode_prompt, "You extract structured tags only.")
+            
+            # Step 2: Intelligent routing with RAG context
+            routing_prompt = f"""You are an emergency management AI. Analyze and recommend the BEST relief center.
+
+USER NEEDS: {decoded_tags}
+LOCATION: {location_str}
+
+{SOP_KNOWLEDGE}
+
+{PPS_KNOWLEDGE}
+
+Provide:
+1. Brief analysis of each PPS suitability
+2. Clear recommendation
+
+End with: BEST MATCH: [PPS Name]"""
+
+            analysis = self._call_llm(routing_prompt, "You are an emergency routing specialist.")
+            
+            # Extract best match
+            best_match = "Unknown PPS"
+            for line in analysis.split('\n'):
+                if line.upper().startswith('BEST MATCH:'):
+                    best_match = line.split(':', 1)[1].strip()
+                    analysis = analysis.replace(line, '').strip()
+                    break
+            
+            # Build response
+            response_data = {
+                "jamai_status": "success",
+                "message": "Routing analysis completed",
+                "output": {
+                    "decoded_tags": decoded_tags,
+                    "analysis_text": analysis,
+                    "selected_pps": best_match
+                },
+                "metadata": {
+                    "location": location_str,
+                    "timestamp": self._get_timestamp()
+                }
+            }
+            
+            # Store in JamAI if configured
+            if JAMAI_PAT and JAMAI_PROJECT_ID:
+                self._store_in_jamai({
+                    "user_input": description,
+                    "location": location_str,
+                    "decoded_tags": decoded_tags,
+                    "analysis": analysis,
+                    "selected_pps": best_match
+                })
+            
+            # Send response
+            self.send_response(200)
+            self._set_cors_headers()
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response_data).encode('utf-8'))
+            
         except Exception as e:
-            self.send_error(500, f"Server Error: {str(e)}")
-
-
-    def _get_latest_routing_entry(self):
-        """
-        Fetches the single latest entry from the 'emergency_routing' table.
-        This is a simplified way to retrieve the result after the POST.
-        """
+            self._send_error_response(500, f"Server error: {str(e)}")
+    
+    def _get_routing_history(self):
+        """Retrieve routing history from JamAI"""
         try:
-            api_base = JAMAI_API_URL.split('/v1')[0].strip('/')
-            table_list_api_url = f"{api_base}/api/v2/gen_tables/action/rows/list"
-            headers = self._get_headers()
+            if not JAMAI_PAT or not JAMAI_PROJECT_ID:
+                self._send_error_response(400, "JamAI not configured")
+                return
+            
+            # Fetch from JamAI
+            url = f"{JAMAI_API_URL}/rows/list"
+            headers = {
+                'Authorization': f'Bearer {JAMAI_PAT}',
+                'X-Project-Id': JAMAI_PROJECT_ID,
+                'Content-Type': 'application/json'
+            }
             
             params = {
-                "table_id": JAMAI_TABLE_ID,
-                "limit": 1,
-                "order_by": "created_at",
-                "order": "desc"
+                'table_id': JAMAI_TABLE_ID,
+                'limit': 10,
+                'offset': 0
             }
-            response = requests.get(table_list_api_url, headers=headers, params=params, timeout=30)
             
-            if response.status_code == 200:
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(response.content)
-            else:
-                self.send_error(response.status_code, f"JamAI List API Error: {response.text}")
-
-        except EnvironmentError as e:
-            self.send_error(500, f"Configuration Error: {str(e)}")
+            # Build URL with params
+            query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
+            full_url = f"{url}?{query_string}"
+            
+            req = urllib.request.Request(full_url, headers=headers, method='GET')
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+            
+            self.send_response(200)
+            self._set_cors_headers()
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode('utf-8'))
+            
         except Exception as e:
-            self.send_error(500, f"Server Error: {str(e)}")
-
-# This allows Vercel to pick up the handler class
-# The file should be saved as /api/jamai/index.py
+            self._send_error_response(500, f"Failed to retrieve history: {str(e)}")
+    
+    def _call_llm(self, prompt, system_instruction):
+        """Call LLM API (JamAI or Gemini fallback)"""
+        try:
+            # Try JamAI first if configured
+            if JAMAI_PAT and JAMAI_PROJECT_ID:
+                return self._call_jamai_llm(prompt, system_instruction)
+            
+            # Fallback to Gemini
+            if GEMINI_API_KEY:
+                return self._call_gemini_llm(prompt, system_instruction)
+            
+            raise Exception("No LLM API configured (set JAMAI_PAT or GEMINI_API_KEY)")
+            
+        except Exception as e:
+            print(f"LLM call failed: {str(e)}")
+            raise
+    
+    def _call_jamai_llm(self, prompt, system_instruction):
+        """Call JamAI Base LLM"""
+        url = f"{JAMAI_API_URL}/chat/completions"
+        
+        payload = {
+            "model": "gemini/gemini-2.0-flash-exp",
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 1000
+        }
+        
+        headers = {
+            'Authorization': f'Bearer {JAMAI_PAT}',
+            'X-Project-Id': JAMAI_PROJECT_ID,
+            'Content-Type': 'application/json'
+        }
+        
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
+        
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+        
+        return result['choices'][0]['message']['content']
+    
+    def _call_gemini_llm(self, prompt, system_instruction):
+        """Fallback to Gemini API"""
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }],
+            "systemInstruction": {
+                "parts": [{"text": system_instruction}]
+            },
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 1000
+            }
+        }
+        
+        req = urllib.request.Request(
+            GEMINI_API_URL,
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+        
+        return result['candidates'][0]['content']['parts'][0]['text']
+    
+    def _store_in_jamai(self, data):
+        """Store routing data in JamAI action table"""
+        try:
+            url = f"{JAMAI_API_URL}/rows/add"
+            
+            payload = {
+                "table_id": JAMAI_TABLE_ID,
+                "data": [{
+                    "action": "routing_request",
+                    "user_input": data['user_input'],
+                    "location_details": data['location'],
+                    "decoded_tags": data['decoded_tags'],
+                    "analysis": data['analysis'],
+                    "selected_pps": data['selected_pps'],
+                    "created_at": self._get_timestamp()
+                }],
+                "stream": False
+            }
+            
+            headers = {
+                'Authorization': f'Bearer {JAMAI_PAT}',
+                'X-Project-Id': JAMAI_PROJECT_ID,
+                'Content-Type': 'application/json'
+            }
+            
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers=headers,
+                method='POST'
+            )
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                print(f"Stored in JamAI: {response.status}")
+                
+        except Exception as e:
+            print(f"Warning: Failed to store in JamAI: {str(e)}")
+            # Don't fail the request if storage fails
+    
+    def _send_error_response(self, code, message):
+        """Send JSON error response"""
+        self.send_response(code)
+        self._set_cors_headers()
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        
+        error_data = {
+            "error": True,
+            "message": message,
+            "jamai_status": "error"
+        }
+        
+        self.wfile.write(json.dumps(error_data).encode('utf-8'))
+    
+    def _get_timestamp(self):
+        """Get current ISO timestamp"""
+        from datetime import datetime
+        return datetime.utcnow().isoformat() + 'Z'

@@ -4,7 +4,7 @@ window.JAMAI_PAT = process.env.JAMAI_PAT || "";
 window.JAMAI_PROJECT_ID = process.env.JAMAI_PROJECT_ID || "";
 
 // The base API URL for JamAI
-window.JAMAI_API_URL = process.env.JAMAI_API_URL || "https://api.jamaibase.com"; 
+window.JAMAI_API_URL = process.env.JAMAI_API_URL || "https://api.jamaibase.com/"; 
 
 // For local testing
 /*
