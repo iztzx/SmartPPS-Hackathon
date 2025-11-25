@@ -50,26 +50,28 @@ def create_table_payloads():
                 }
             },
             {
-                "id": "analysis_text",
-                "name": "Analysis Text",
-                "type": "completion",
-                "config": {
-                    "completion": {
-                        "system_instruction": (
-                            "You are an emergency routing assistant. "
-                            "Use decoded_tags and query the knowledge table 'pps_knowledge' "
-                            "to output a brief suitability analysis. "
-                            "End with a line 'BEST MATCH: <PPS name>'."
-                        ),
-                        "rag_sources": ["pps_knowledge"]
-                    }
-                }
-            },
-            {
-                "id": "selected_pps",
-                "name": "Selected PPS",
-                "type": "text"
-            },
+    "id": "analysis_text",
+    "name": "Analysis Text",
+    "type": "completion",
+    "config": {
+        "completion": {
+            "system_instruction": (
+                "You are an emergency routing assistant. "
+                "Use decoded_tags and query the knowledge table 'pps_knowledge' "
+                "to output a brief suitability analysis. "
+                "End with a line 'BEST MATCH: <PPS name>'. "
+                "Also write the best PPS name into the 'selected_pps' column."
+            ),
+            "rag_sources": ["pps_knowledge"]
+        }
+    }
+},
+{
+    "id": "selected_pps",
+    "name": "Selected PPS",
+    "type": "text"
+},
+
             {"id": "created_at", "name": "Created At", "type": "timestamp"}
         ]
     }
