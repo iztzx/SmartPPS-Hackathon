@@ -455,108 +455,149 @@
             currentVulnerabilitiesDiv.innerHTML = `<span class="font-bold text-indigo-700">${vulns}</span>`;
             routingCoords.textContent = `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)} (Source: ${userLocation.source})`;
         }
-
-
-// --- Feature 1 & 2: Semantic Decoding & Routing (with Serverless Backend) ---
-
-document.getElementById("semantic-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const inputText = document.getElementById("semantic-input").value;
-    const button = document.getElementById('semantic-submit-button');
-    const routingStatus = document.getElementById('save-routing-status'); 
-
-    // 1. Setup UI for Loading
-    button.disabled = true; 
-    button.classList.add('opacity-50'); 
-    button.textContent = '✨ Analyzing Situation & Status...';
-    
-    // Clear previous results
-    document.getElementById("analysis-display").textContent = "Analyzing...";
-    document.getElementById("best-match-display").textContent = "Searching for optimal PPS...";
-    document.getElementById("analysis-display").classList.remove("hidden");
-    document.getElementById("best-match-display").classList.remove("hidden");
-    document.getElementById("jamai-citation").classList.add("hidden");
-
-    // Clear Status Area 
-    const statusContentDiv = document.getElementById('status-content');
-    const statusCard = document.getElementById('local-status-results-routing');
-    statusContentDiv.innerHTML = '<p class="text-sm text-gray-500 pulse-animation">Request sent to JamAI backend...</p>';
-    statusCard.classList.remove('bg-green-100', 'border-green-500', 'bg-red-100', 'border-red-500', 'bg-gray-100', 'bg-yellow-100', 'border-yellow-500');
-    statusCard.classList.add('bg-blue-100', 'border-blue-500'); // Loading color
-
-    const payload = {
-        user_input: inputText,
-        location_details: userLocation.source !== 'Manual Input Required' ? `Lat: ${userLocation.lat.toFixed(4)}, Long: ${userLocation.lon.toFixed(4)}` : userLocation.city
-    };
-
-    // 2. Send to Serverless Backend (which handles JamAI LLM calls)
-    try {
-        const res = await fetch("/api/analyze", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await res.json();
         
-        if (res.status === 202) {
-             // FIX: Clear instructions for user to resubmit/re-fetch
-             statusContentDiv.innerHTML = `<p class="text-sm whitespace-pre-wrap text-yellow-800">⚠️ **Analysis Pending.** The request (Row ID: ${data.row_id}) is running on the JamAI server. Please wait 30 seconds and click the 'Get Safe Route & Local Status' button *again* to fetch the result instantly.</p>`;
-             statusCard.classList.remove('bg-blue-100', 'border-blue-500');
-             statusCard.classList.add('bg-yellow-100', 'border-yellow-500');
-             document.getElementById("analysis-display").textContent = "Analysis timed out on Vercel. Please resubmit the form in a moment to check for the completed result.";
-             document.getElementById("best-match-display").innerHTML = `<p class="text-2xl font-extrabold text-yellow-700">Analysis Pending...</p>`;
-             routingStatus.textContent = "⚠️ Polling timed out. Resubmit to fetch result.";
-             
-        } else if (res.ok && data.success) {
-            // SUCCESS (200 OK)
-            
-            const tagsString = typeof data.tags === 'string' ? data.tags : '';
-            const decodedTags = tagsString.split(',').map(t => t.trim()).filter(Boolean);
-            window.saveFamilyData({ vulnerabilities: decodedTags.length > 0 ? decodedTags : ['N/A Pax'] });
-            
-            document.getElementById("current-vulnerabilities").innerHTML = `<span class="font-bold text-indigo-700">${(decodedTags.length > 0 ? decodedTags : ['N/A Pax']).join('; ')}</span>`;
-            
-            statusContentDiv.innerHTML = `<p class="text-sm whitespace-pre-wrap text-gray-800">✅ Routing successful. Local risk assessed based on PPS knowledge.</p>`;
-            statusCard.classList.remove('bg-blue-100', 'border-blue-500');
-            statusCard.classList.add('bg-green-100', 'border-green-500');
+        // --- Automated Polling Function ---
+        async function pollForResults(rowId, button, routingStatus, statusCard) {
+            const POLLING_INTERVAL_MS = 3000; // Check every 3 seconds
+            const MAX_POLLS = 20; // Max 20 attempts = 60 seconds (Vercel hard limit)
+            let attempts = 0;
 
-            document.getElementById("analysis-display").textContent = data.analysis || "No detailed analysis provided.";
-            
-            document.getElementById("best-match-display").innerHTML = `
-                <p class="text-2xl font-extrabold text-green-700">Best Match Found!</p>
-                <p class="text-4xl font-extrabold text-indigo-700 my-2">${data.selected_pps || 'Unknown PPS'}</p>
-                <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
-            `;
-            
-            document.getElementById("jamai-citation").classList.remove("hidden");
-            routingStatus.textContent = "✅ Analysis complete and route generated.";
+            const interval = setInterval(async () => {
+                attempts++;
+                if (attempts > MAX_POLLS) {
+                    clearInterval(interval);
+                    routingStatus.textContent = "❌ Analysis timed out after 60 seconds. Please try again later.";
+                    button.disabled = false;
+                    button.classList.remove('opacity-50');
+                    return;
+                }
 
-        } else {
-            // Handle API errors (400, 500, etc.)
-            const errorText = data.error || data.message || (res.statusText ? `HTTP Error: ${res.statusText}` : "An unexpected network error occurred.");
-            document.getElementById("analysis-display").textContent = errorText;
-            document.getElementById("best-match-display").innerHTML = `<p class="text-lg font-bold text-red-600">Routing Failed</p>`;
-            routingStatus.textContent = `❌ Routing failed: ${errorText}`;
-            statusCard.classList.remove('bg-blue-100', 'border-blue-500');
-            statusCard.classList.add('bg-red-100', 'border-red-500'); 
+                // Call the same endpoint, but this time send the Row ID to trigger the FETCH mode
+                try {
+                    const res = await fetch("/api/analyze", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ row_id: rowId })
+                    });
+
+                    const data = await res.json();
+                    const statusContentDiv = document.getElementById('status-content');
+
+                    if (data.status === 'complete' && data.success) {
+                        clearInterval(interval);
+                        
+                        // Update UI with Final Results
+                        const tagsString = typeof data.tags === 'string' ? data.tags : '';
+                        const decodedTags = tagsString.split(',').map(t => t.trim()).filter(Boolean);
+                        window.saveFamilyData({ vulnerabilities: decodedTags.length > 0 ? decodedTags : ['N/A Pax'] });
+                        
+                        document.getElementById("current-vulnerabilities").innerHTML = `<span class="font-bold text-indigo-700">${(decodedTags.length > 0 ? decodedTags : ['N/A Pax']).join('; ')}</span>`;
+                        document.getElementById("analysis-display").textContent = data.analysis || "No detailed analysis provided.";
+                        document.getElementById("best-match-display").innerHTML = `
+                            <p class="text-2xl font-extrabold text-green-700">Best Match Found!</p>
+                            <p class="text-4xl font-extrabold text-indigo-700 my-2">${data.selected_pps || 'Unknown PPS'}</p>
+                            <p class="text-lg text-gray-700">Proceed to the **QR Passport** tab to prepare your documents.</p>
+                        `;
+                        document.getElementById("jamai-citation").classList.remove("hidden");
+
+                        statusContentDiv.innerHTML = `<p class="text-sm whitespace-pre-wrap text-gray-800">✅ Routing successful and retrieved after ${attempts * POLLING_INTERVAL_MS / 1000} seconds.</p>`;
+                        statusCard.classList.remove('bg-blue-100', 'border-blue-500', 'bg-yellow-100', 'border-yellow-500');
+                        statusCard.classList.add('bg-green-100', 'border-green-500');
+                        routingStatus.textContent = "✅ Analysis complete and route generated.";
+                        
+                    } else if (data.status === 'pending') {
+                        // Update UI status to show progress
+                        const timeElapsed = attempts * POLLING_INTERVAL_MS / 1000;
+                        routingStatus.textContent = `Processing... (${timeElapsed}s elapsed)`;
+                        statusContentDiv.innerHTML = `<p class="text-sm text-yellow-800 pulse-animation">Job is still processing on JamAI base... (${timeElapsed}s)</p>`;
+                        statusCard.classList.remove('bg-blue-100', 'border-blue-500');
+                        statusCard.classList.add('bg-yellow-100', 'border-yellow-500');
+                    } else {
+                        // Handle unexpected errors during polling
+                        clearInterval(interval);
+                        routingStatus.textContent = `❌ Analysis Error: ${data.error || 'Check backend logs.'}`;
+                        statusCard.classList.remove('bg-blue-100', 'border-blue-500');
+                        statusCard.classList.add('bg-red-100', 'border-red-500'); 
+                    }
+                } catch (error) {
+                    // Network error during poll
+                    clearInterval(interval);
+                    routingStatus.textContent = "❌ Network error during polling.";
+                    console.error("Polling Network Error:", error);
+                } finally {
+                    if (routingStatus.textContent.includes('✅') || routingStatus.textContent.includes('❌')) {
+                        button.disabled = false;
+                        button.classList.remove('opacity-50');
+                    }
+                }
+            }, POLLING_INTERVAL_MS);
         }
 
-    } catch (error) {
-        console.error("Routing API Call Error:", error);
-        document.getElementById("analysis-display").textContent = `Error during routing calculation: ${error.message || error}.`;
-        document.getElementById("best-match-display").innerHTML = `<p class="text-lg font-bold text-red-600">Routing Failed (Network)</p>`;
-        routingStatus.textContent = "❌ Network error connecting to Vercel backend.";
-    } finally {
-        button.disabled = false; 
-        button.classList.remove('opacity-50'); 
-        button.textContent = '✨ Get Safe Route & Local Status';
-        showTab("routing");
-    }
-});
+        // --- Feature 1 & 2: Semantic Decoding & Routing ---
 
+        document.getElementById("semantic-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const inputText = document.getElementById("semantic-input").value;
+            const button = document.getElementById('semantic-submit-button');
+            const routingStatus = document.getElementById('save-routing-status'); 
 
-        // Removed fetchRoutingOutcome function as the polling is handled by the backend.
+            // 1. Setup UI for Loading
+            button.disabled = true; 
+            button.classList.add('opacity-50'); 
+            button.textContent = '✨ Submitting Job...';
+            routingStatus.textContent = 'Submitting request to Vercel...';
+            
+            // Clear previous results and set loading state
+            document.getElementById("analysis-display").classList.remove("hidden");
+            document.getElementById("best-match-display").classList.remove("hidden");
+            document.getElementById("jamai-citation").classList.add("hidden");
+            
+            const statusContentDiv = document.getElementById('status-content');
+            const statusCard = document.getElementById('local-status-results-routing');
+            statusCard.classList.remove('bg-green-100', 'border-green-500', 'bg-red-100', 'border-red-500', 'bg-gray-100', 'bg-yellow-100', 'border-yellow-500');
+            statusCard.classList.add('bg-blue-100', 'border-blue-500'); 
+            statusContentDiv.innerHTML = '<p class="text-sm text-gray-500 pulse-animation">Job is processing on JamAI base...</p>';
+
+            const payload = {
+                user_input: inputText,
+                location_details: userLocation.source !== 'Manual Input Required' ? `Lat: ${userLocation.lat.toFixed(4)}, Long: ${userLocation.lon.toFixed(4)}` : userLocation.city
+            };
+
+            // 2. Send to Vercel (SUBMIT mode - very fast)
+            try {
+                const res = await fetch("/api/analyze", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                
+                if (res.ok && data.status === 'submitted') {
+                    // START POLLING AUTOMATICALLY
+                    routingStatus.textContent = `Job submitted. Polling for results... (Row ID: ${data.row_id})`;
+                    button.textContent = '✨ Analysis Running...';
+                    showTab("routing"); // Move to the results page immediately
+                    
+                    pollForResults(data.row_id, button, routingStatus, statusCard);
+                    
+                } else {
+                    // Submission failed 
+                    const errorText = data.error || data.message || res.statusText;
+                    routingStatus.textContent = `❌ Submission failed: ${errorText}`;
+                    button.disabled = false; button.classList.remove('opacity-50');
+                    statusCard.classList.remove('bg-blue-100', 'border-blue-500');
+                    statusCard.classList.add('bg-red-100', 'border-red-500');
+                    showTab("routing");
+                }
+
+            } catch (error) {
+                console.error("Routing API Call Error:", error);
+                routingStatus.textContent = "❌ Network error connecting to Vercel endpoint.";
+                button.disabled = false; button.classList.remove('opacity-50');
+                showTab("routing");
+            }
+        });
 
 
         // --- Feature 3: QR Passport and PKPASS (Simulated) ---
@@ -665,7 +706,7 @@ document.getElementById("semantic-form").addEventListener("submit", async (e) =>
             }
         });
 
-        // --- Feature 4: Rumour Killer (Grounded Q&A - Frontend LLM Call for search demonstration) ---
+        // --- Feature 4: Rumour Killer (Grounded Q&A - Placeholder) ---
 
         document.getElementById('rumour-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -676,10 +717,6 @@ document.getElementById("semantic-form").addEventListener("submit", async (e) =>
             await rumourKillerChat(query);
         });
         
-        // This function is removed as it was making a direct LLM call which is not what the user's backend setup is for.
-        // The front-end must not have an LLM API key. A proper implementation would proxy this through the serverless function.
-        // For now, I will use a placeholder or remove the functionality entirely, but based on the original script:
-        
         async function rumourKillerChat(query) {
              const chatWindow = document.getElementById('chat-window');
              const submitButton = document.getElementById('rumour-submit-button');
@@ -687,7 +724,7 @@ document.getElementById("semantic-form").addEventListener("submit", async (e) =>
              chatWindow.innerHTML += `<div class="user-message">${query}</div>`;
              chatWindow.scrollTop = chatWindow.scrollHeight;
 
-             const loadingHtml = `<div id="ai-loading" class="ai-message bg-red-50 text-red-700 border-red-300"><span class="font-semibold">⚠️ Cannot call LLM directly from the browser in this setup.</span><p class="text-xs mt-1">Please integrate a dedicated proxy server route for the Rumour Killer feature.</p></div>`;
+             const loadingHtml = `<div id="ai-loading" class="ai-message bg-red-50 text-red-700 border-red-300"><span class="font-semibold">⚠️ Feature Disabled.</span><p class="text-xs mt-1">This feature requires a dedicated API endpoint not available in this demo setup.</p></div>`;
              chatWindow.innerHTML += loadingHtml;
              chatWindow.scrollTop = chatWindow.scrollHeight;
 
