@@ -1,9 +1,11 @@
 // /api/jamai-create.js
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
   const { input } = req.body;
-  const { user_input, location, familyData } = input;
+  const { description, location, familyData } = input;
 
   const headers = {
     'Authorization': `Bearer ${process.env.JAWAT_PAT}`,
@@ -11,17 +13,17 @@ export default async function handler(req, res) {
   };
 
   try {
-    // Step 1: Decoding LLM
-    const decodeRes = await fetch(`${process.env.JAWAT_API_URL}/v1/decode`, {
+    // Step 1: Decode user input
+    const decodeRes = await fetch(`${process.env.JAWAT_API_URL}/decode`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ text: user_input })
+      body: JSON.stringify({ text: description })
     });
-    const decodeData = await decodeRes.json();
-    const decoded_tags = decodeData.tags || [];
+    const decodeJson = await decodeRes.json();
+    const decoded_tags = decodeJson.tags || [];
 
-    // Step 2: Routing LLM
-    const routeRes = await fetch(`${process.env.JAWAT_API_URL}/v1/route`, {
+    // Step 2: Routing analysis
+    const routeRes = await fetch(`${process.env.JAWAT_API_URL}/route`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -31,14 +33,14 @@ export default async function handler(req, res) {
         pps_context: 'PPS_KNOWLEDGE_TEXT'
       })
     });
-    const routeData = await routeRes.json();
+    const routeJson = await routeRes.json();
 
     return res.status(200).json({
       jamai_status: 'success',
       output: {
         decoded_tags: decoded_tags.join(', '),
-        analysis_text: routeData.analysis,
-        selected_pps: routeData.best_match
+        analysis_text: routeJson.analysis,
+        selected_pps: routeJson.best_match
       }
     });
 
