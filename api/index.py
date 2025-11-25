@@ -22,7 +22,7 @@ def analyze_route():
         data = request.json
         user_input = data.get('user_input')
         location_details = data.get('location_details')
-        row_id_to_fetch = data.get('row_id') # New key for polling request
+        row_id_to_fetch = data.get('row_id') # Key for polling request
 
         if not user_input and not row_id_to_fetch:
             return jsonify({"error": "User input is required"}), 400
@@ -38,28 +38,29 @@ def analyze_route():
                 row_id_to_fetch
             )
             
-            # Check if analysis is complete (i.e., all output columns exist)
-            if (row_response.get("row") and 
-                row_response["row"].get("route_analysis") and 
-                row_response["row"].get("selected_pps")):
+            # Check for the row existence and the required non-empty analysis columns
+            if row_response.get("row") and 'route_analysis' in row_response["row"]:
                 
                 final_row = row_response["row"]
                 
-                # Return final results immediately
-                return jsonify({
-                    "success": True,
-                    "status": "complete",
-                    "analysis": final_row.get("route_analysis"),
-                    "tags": final_row.get("decoded_tags"),
-                    "selected_pps": final_row.get("selected_pps")
-                }), 200
-            else:
-                # Return PENDING status immediately (no waiting)
-                return jsonify({
-                    "success": False, 
-                    "status": "pending", 
-                    "row_id": row_id_to_fetch
-                }), 200
+                # Check for the *actual content* of the required analysis fields
+                if final_row.get("route_analysis") and final_row.get("selected_pps"):
+                    
+                    # Return final results immediately
+                    return jsonify({
+                        "success": True,
+                        "status": "complete",
+                        "analysis": final_row.get("route_analysis"),
+                        "tags": final_row.get("decoded_tags"),
+                        "selected_pps": final_row.get("selected_pps")
+                    }), 200
+            
+            # If the analysis is not complete (or empty content)
+            return jsonify({
+                "success": False, 
+                "status": "pending", 
+                "row_id": row_id_to_fetch
+            }), 200
 
         # =========================================================
         # MODE 1: SUBMIT JOB (The initial request)

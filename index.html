@@ -63,7 +63,6 @@
     <script src="config.js"></script>
     <script>
         // --- FORCING GUEST MODE ---
-        // Critical: Ensure no Supabase code runs and use local storage exclusively.
         window.isGuest = true;
         const GUEST_ID_KEY = 'smartpps_guest_id';
         if (!localStorage.getItem(GUEST_ID_KEY)) localStorage.setItem(GUEST_ID_KEY, 'guest-' + crypto.randomUUID());
